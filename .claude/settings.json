@@ -10,7 +10,19 @@
       "Bash(curl -s -X POST -H \"Content-Type: application/json\" https://api.bls.gov/publicAPI/v1/timeseries/data/ -d '{\"seriesid\":[\"OEUM002050000000019203113\",\"OEUM003958000000019203113\",\"OEUM002050000000019203104\"]}')",
       "Bash(.venv/Scripts/python -m jobhunter.wages)",
       "Bash(.venv/Scripts/python -m jobhunter.screen --limit 3)",
-      "Bash(git commit -q -m 'Stage 2: Screener, BLS wages, ranking, usage logging, nightly run *)"
+      "Bash(git commit -q -m 'Stage 2: Screener, BLS wages, ranking, usage logging, nightly run *)",
+      "Bash(.venv/Scripts/python -m jobhunter.screen)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(.venv/Scripts/python -m jobhunter.*)",
+      "Bash(.venv/Scripts/python -u -m jobhunter.*)",
+      "PowerShell(git add *)",
+      "PowerShell(git commit *)",
+      "PowerShell(git push)",
+      "PowerShell(git push *)",
+      "PowerShell(.venv\\Scripts\\python -m jobhunter.*)"
     ]
   }
 }

@@ -95,6 +95,14 @@
   .empty { color: var(--muted); padding: 12px 0; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .hidden { display: none; }
+  .i { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; margin-left: 6px;
+       border-radius: 50%; font: italic 600 11px/1 Georgia, serif; color: var(--muted); vertical-align: 1px;
+       border: 1px solid var(--muted); background: transparent; text-transform: none; letter-spacing: 0; }
+  .i[aria-expanded=true] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .infobox { display: block; margin: 6px 0 2px; padding: 8px 10px; border-radius: 8px; background: var(--chip);
+             color: var(--text); font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; line-height: 1.45; }
+  .infobox.hidden { display: none; }
+  .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -144,6 +152,62 @@ const ROLES = { lab: "Lab", qa: "QA", validation: "Validation", management: "Man
 const STEPS = [["screen", "Screening", "--s1"], ["tailor", "Tailoring", "--s2"], ["verify", "Verifying", "--s3"]];
 let usageModel = null;
 
+// Explanations behind the (i) buttons.
+const INFO = {
+  "postings seen": "Every posting the Scout read from the employers' job feeds, before any filtering.",
+  "passed hard filters": "Postings that survived the free code filters (age, title, shift, location and commute, pay floor, lane keywords, duplicates) and went on to the AI Screener.",
+  "after screening": "Jobs the Screener kept: lab or lab-related work at your level, no deal-breakers. Ranked by fit score plus lane, freshness and commute bonuses.",
+  "to prepare": "Today's top picks (fit 60+), up to 3 a day. Stage 3 builds a tailored resume for each one for you to approve or reject.",
+  "To prepare": "Today's top picks (fit 60+), up to 3 a day. Stage 3 builds a tailored resume for each one for you to approve or reject.",
+  "Other candidates": "Screened jobs that weren't picked today, usually because the fit score is below 60. They stay here until they expire (30 days after posting) or the employer removes them.",
+  "Dropped by the Screener": "Jobs the AI Screener rejected after reading the full posting (not lab work, pay below $75k, shift work, wrong level and so on). Shown for 14 days so you can catch misreads.",
+  "Why postings were filtered out": "The free code filters that ran before any AI step, with how many postings each one removed. Tap a reason for what it means.",
+  "Candidates by employer": "How many jobs from each employer are currently candidates or queued.",
+  "Postings seen by employer": "How many postings the Scout read from each employer's feed. Big employers post worldwide; most of their postings fail the location filter.",
+  "tokens per screened job": "Average Claude tokens (input + output) used to screen one job. Several jobs share one call, so the fixed part of the prompt (your profile, the rules, the wage table) is split between them.",
+  "tokens per prepared application": "Average Claude tokens to tailor and verify one application's resume. Measured from Stage 3 onward.",
+  "API-equivalent, 30 days": "What these calls would have cost on Anthropic's pay-per-use API, as reported by Claude Code. On your Pro plan you don't pay this; it's a consistent yardstick for how much of the plan's usage the pipeline consumes.",
+  "Claude calls, 30 days": "Number of headless Claude runs in the last 30 days. Failed calls are retried on the next run.",
+  "Tokens per day": "Claude tokens used each day, split by pipeline step. A token is roughly three-quarters of a word.",
+  "Estimator": "Projects daily Claude usage for a given number of prepared applications per day, from the averages measured so far.",
+  "Watchlist": "Employers whose own job feeds the Scout reads every night. 'pending' means their careers site runs on a platform the Scout can't read yet.",
+};
+
+// Filter reasons, matched by prefix.
+const REASONS = [
+  ["posted over", "The posting is older than 30 days. Old postings are often filled or stale, so they're skipped."],
+  ["title: excluded role type or level", "The title names something out of scope: director level or above, senior manager, internships, IT, software, clinical, sales, computational, field applications and similar."],
+  ["title: not lab or QA", "The title has no lab or lab-related word (chemist, QC, analytical, radiochemistry, E&L, assay, formulation and so on) and isn't a QA role."],
+  ["title: senior QA", "A QA title at senior, lead, principal or manager level. QA is accepted only at associate and mid level."],
+  ["title: supply/logistics", "A supply or logistics role without a development or start-up angle. Only set-up and implementation work for drug product development counts."],
+  ["shift or weekend work", "The title names shifts, nights, weekends, 12-hour or 4x10 schedules."],
+  ["location outside the Triangle", "On-site or hybrid outside the Raleigh-Durham area (or a location the Scout couldn't place in the Triangle)."],
+  ["commute", "Drive time from home is over 30 minutes (measured without traffic)."],
+  ["pay up to", "The posted pay range tops out below $75,000 a year."],
+  ["no lane keywords", "The full posting mentions none of the keywords for your four lanes (radiochemistry, analytical/method validation, E&L, QA/GxP)."],
+  ["remote outside the US", "A remote role tied to another country."],
+  ["excluded employer", "Pace Life Sciences / Pace Analytical and affiliates, or an employer you crossed out."],
+  ["could not route", "The commute couldn't be calculated for that city."],
+  ["repost", "The same job (employer, title, location) was already seen within 60 days."],
+];
+const reasonInfo = (r) => (REASONS.find(([p]) => (r || "").startsWith(p)) || [, null])[1];
+
+// A label with an (i) button; the explanation toggles open below it.
+function term(label, text = INFO[label], extra = "") {
+  if (!text) return esc(label) + extra;
+  return `<span data-term>${esc(label)}${extra}<button type="button" class="i" aria-expanded="false" aria-label="What does this mean?">i</button>`
+       + `<span class="infobox hidden">${esc(text)}</span></span>`;
+}
+const h2 = (label, extra = "") => `<h2>${term(label, INFO[label], extra)}</h2>`;
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".i");
+  if (!btn) return;
+  const box = btn.closest("[data-term]").querySelector(".infobox");
+  const open = box.classList.toggle("hidden") === false;
+  btn.setAttribute("aria-expanded", open);
+});
+
 function store(get, value) {
   try { return get ? localStorage.getItem(STORE_KEY) : (value ? localStorage.setItem(STORE_KEY, value) : localStorage.removeItem(STORE_KEY)); }
   catch { return null; }
@@ -172,7 +236,7 @@ function list(title, items) {
   return items && items.length ? `<div><b>${title}</b><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
 }
 
-function card(j) {
+function card(j, i) {
   const s = j.screen;
   const chips = [];
   if (s) {
@@ -204,7 +268,7 @@ function card(j) {
   const section = (label, text) => text ? `<details><summary>${label}</summary><div class="snippet">${esc(text)}</div></details>` : "";
   return `<article class="card${j.status === "queued" ? " queued" : ""}">
     <div class="head">${score}<div>
-      <h3><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
+      <h3><span class="n">${i + 1}.</span><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
       <div class="emp">${esc(j.employer)}${j.status === "screened_out" ? ` · <span style="color:var(--bad)">dropped: ${esc(j.status_reason)}</span>` : ""}</div>
     </div></div>
     <div class="chips">${chips.join("")}</div>
@@ -215,10 +279,10 @@ function card(j) {
   </article>`;
 }
 
-function bars(rows, label, value) {
+function bars(rows, label, value, explain = () => null) {
   if (!rows.length) return `<p class="empty">Nothing yet.</p>`;
   const max = Math.max(...rows.map((r) => r[value] || 0), 1);
-  return `<div class="bars">${rows.map((r) => `<div class="bar"><span>${esc(r[label] ?? "—")}</span><em>${r[value] || 0}</em>
+  return `<div class="bars">${rows.map((r, i) => `<div class="bar"><span><span class="n">${i + 1}.</span>${term(r[label] ?? "—", explain(r[label]))}</span><em>${r[value] || 0}</em>
     <i style="width:${Math.max(2, (100 * (r[value] || 0)) / max)}%"></i></div>`).join("")}</div>`;
 }
 
@@ -242,16 +306,17 @@ function renderUsage(usage) {
     return `<div class="bar"><span>${d}</span><em>${num(sum)} tok · $${cost.toFixed(2)}</em><div class="stack">${segs}</div></div>`;
   }).join("");
 
+  const tile = (value, label, extra = "") => `<div class="tile"><b>${value}</b><span>${term(label, INFO[label], extra)}</span></div>`;
   return `<div class="tiles">
-      <div class="tile"><b>${num(perJob("screen"))}</b><span>tokens per screened job</span></div>
-      <div class="tile"><b>${prepPerApp ? num(prepPerApp) : "—"}</b><span>tokens per prepared application</span></div>
-      <div class="tile"><b>$${total(null, "cost_usd").toFixed(2)}</b><span>API-equivalent, 30 days</span></div>
-      <div class="tile"><b>${total(null, "calls")}</b><span>Claude calls, 30 days${total(null, "failed") ? ` · ${total(null, "failed")} failed` : ""}</span></div>
+      ${tile(num(perJob("screen")), "tokens per screened job")}
+      ${tile(prepPerApp ? num(prepPerApp) : "—", "tokens per prepared application")}
+      ${tile("$" + total(null, "cost_usd").toFixed(2), "API-equivalent, 30 days")}
+      ${tile(total(null, "calls"), "Claude calls, 30 days", total(null, "failed") ? ` · ${total(null, "failed")} failed` : "")}
     </div>
-    <h2>Tokens per day</h2>
+    ${h2("Tokens per day")}
     <div class="legend">${STEPS.map(([, n, c]) => `<span style="--c:var(${c})">${n}</span>`).join("")}</div>
     <div class="bars">${rows}</div>
-    <h2>Estimator</h2>
+    ${h2("Estimator")}
     <div class="est">
       <label for="n">Applications prepared per day: <b id="nval">3</b></label>
       <input id="n" type="range" min="1" max="10" value="3">
@@ -281,30 +346,30 @@ function render(d) {
   $("tiles").innerHTML = [
     [total, "postings seen"], [count("candidate") + count("queued") + count("screened_out"), "passed hard filters"],
     [count("candidate") + count("queued"), "after screening"], [queued.length, "to prepare"],
-  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${t}</span></div>`).join("");
+  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${term(t)}</span></div>`).join("");
 
   $("tab-candidates").innerHTML =
-    `<h2>To prepare · ${queued.length}</h2>` +
+    h2("To prepare", ` · ${queued.length}`) +
     (queued.length ? `<p class="sub">Today's picks. Tailored resumes and approve/reject buttons arrive in Stage 3.</p>` + queued.map(card).join("")
                    : `<p class="empty">Nothing queued yet.</p>`) +
-    `<h2>Other candidates · ${others.length}</h2>` +
+    h2("Other candidates", ` · ${others.length}`) +
     (others.length ? others.map(card).join("") : `<p class="empty">None.</p>`) +
-    `<h2>Dropped by the Screener · last 14 days · ${d.screened_out.length}</h2>` +
+    h2("Dropped by the Screener", ` · last 14 days · ${d.screened_out.length}`) +
     (d.screened_out.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${d.screened_out.map(card).join("")}</details>`
                            : `<p class="empty">None.</p>`);
 
   $("tab-stats").innerHTML =
-    `<h2>Why postings were filtered out</h2>` + bars(d.stats.by_reason.slice(0, 15), "reason", "n") +
-    `<h2>Candidates by employer</h2>` + bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates") +
-    `<h2>Postings seen by employer</h2>` + bars(d.stats.by_employer, "employer", "seen");
+    h2("Why postings were filtered out") + bars(d.stats.by_reason.slice(0, 15), "reason", "n", reasonInfo) +
+    h2("Candidates by employer") + bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates") +
+    h2("Postings seen by employer") + bars(d.stats.by_employer, "employer", "seen");
 
   usageModel = null;
   $("tab-usage").innerHTML = renderUsage(d.usage || []);
   if (usageModel) wireEstimator(usageModel);
 
-  $("tab-watchlist").innerHTML = `<h2>Watchlist · ${d.watchlist.length} employers</h2>
-    <p class="sub">"pending" = feed not supported yet. To cross a name out, tell Claude; it's never re-added.</p>
-    <div class="bars">${d.watchlist.map((w) => `<div class="wl"><span>${esc(w.name)}</span>
+  $("tab-watchlist").innerHTML = h2("Watchlist", ` · ${d.watchlist.length} employers`) + `
+    <p class="sub">To cross a name out, tell Claude; it's never re-added.</p>
+    <div class="bars">${d.watchlist.map((w, i) => `<div class="wl"><span><span class="n">${i + 1}.</span>${esc(w.name)}</span>
       <span class="chip${w.kind === "pending" ? " warn" : " good"}">${esc(w.kind)}</span><small>${esc(w.note)}</small></div>`).join("")}</div>`;
 }
 

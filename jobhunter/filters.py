@@ -121,7 +121,8 @@ def is_us_remote(location):
 
 
 _AMOUNT = r"\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d+(?:\.\d+)?\s?[kK]?)"
-_RANGE = re.compile(_AMOUNT + r"\s*(?:-|–|—|to)\s*" + _AMOUNT + r"(?:\s*(?:/|per)\s*(hour|hr|year|yr|annum))?", re.I)
+_UNIT = r"(?:\s*(?:/|per|an|a)\s*(hour|hr|year|yr|annum))?"
+_RANGE = re.compile(_AMOUNT + r"(?:\s*(?:/|per|an|a)\s*(?:hour|hr|year|yr|annum))?\s*(?:-|–|—|to)\s*" + _AMOUNT + _UNIT, re.I)
 
 
 def _to_number(raw):

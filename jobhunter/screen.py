@@ -27,8 +27,11 @@ SCHEMA = {
             "drop": {"type": "boolean"},
             "drop_reason": {"type": "string"},
             "fit_score": {"type": "integer", "minimum": 0, "maximum": 100},
-            "lane": {"enum": ["radiochem", "analytical", "el", "qa", "dev_supply", "other"]},
-            "role_type": {"enum": ["lab", "qa", "validation", "management", "development_supply", "other"]},
+            "lane": {"enum": ["radiochem", "analytical", "el", "qa", "dev_supply",
+                              "ai", "pm", "writing", "consulting", "informatics", "operations", "techqa", "other"]},
+            "role_type": {"enum": ["lab", "qa", "validation", "management", "development_supply",
+                                   "ai", "project_management", "technical_writing", "consulting", "informatics",
+                                   "operations", "software_qa", "other"]},
             "seniority": {"enum": ["entry", "associate", "mid", "senior", "principal", "manager"]},
             "manages_people": {"type": "boolean"},
             "summary": {"type": "string"},
@@ -60,17 +63,69 @@ def profile_text(bank):
         lines.append(f"* {r['title']} | {where} | {r['start']} to {r['end']}")
         if r.get("lanes"):  # relevant roles in full; others by title and dates only
             lines += [f"  - {b['text']}" for b in r["bullets"]]
+    projects = bank.get("projects")
+    if projects:
+        lines.append(f"\n{projects['heading'].upper()} ({projects['start']} to {projects['end']})")
+        lines += [f"- {p['text']}" for p in projects["items"]]
     lines.append("\nEDUCATION")
     for e in bank["education"]:
         lines.append(f"- {e['degree']}, {e['school']} ({e['start']} to {e['end']}); {e.get('note', '')}")
     return "\n".join(lines)
 
 
-def system_prompt(bank, profile, wage_table):
-    return f"""You screen job postings for one candidate and return JSON only, matching the schema.
+ALT_WANTS = """WHAT HE WANTS (ALTERNATIVE TRACK: roles outside the lab that use his transferable skills)
+- Lane priority: AI implementation / automation / AI enablement first; then project or program
+  management, technical writing and documentation, and consulting or implementation work; then lab or
+  scientific informatics (LIMS, ELN, data), operations / asset / vendor / supply management, and software
+  or game QA testing. Industry doesn't matter; life-science or regulated settings are a plus.
+- His transferable strengths: running and maintaining multiple labs, small-team leadership and
+  prioritization, asset onboarding/decommissioning, vendor and supply management, GxP documentation
+  (SOPs, change controls, protocols, investigations), and two years of hands-on AI work (agent workflows,
+  AI-assisted coding and documentation, GitHub, simple web pages, game QA and Roblox game servers).
+- He is NOT a software engineer, data scientist or ML engineer: roles that require professional
+  software development, ML model building or a CS degree are a poor fit (score low or drop).
+- Level: individual contributor to manager / lead. Director level and above does not fit.
+- PhD-level roles are welcome; never treat a PhD requirement as a gap.
+- No shift, night or weekend work. Travel up to 50%. No relocation; on-site/hybrid must be in the
+  Triangle (NC) or the role fully remote in the US.
+- Salary floor: ${floor}/year.
 
-CANDIDATE
-{profile_text(bank)}
+DROP A JOB (drop=true, short drop_reason) WHEN
+- it is sales, recruiting, finance, clinical/patient-facing, or professional software/ML engineering;
+- it requires shift/night/weekend work, more than 50% travel, relocation, a license he lacks, or a
+  security clearance;
+- it is director level or above;
+- the posted pay range tops out below the salary floor.
+
+Use lane values ai, pm, writing, consulting, informatics, operations, techqa or other, and the matching
+role_type values. Fit score: how well his real experience (above) covers the role's requirements."""
+
+
+FIELDS_TEXT = """FIT SCORE (0-100), for jobs not dropped
+90+ near-perfect lane and level, nearly all requirements met · 75-89 strong · 60-74 plausible stretch · below 60 weak.
+Judge only against the candidate's real experience above; do not assume skills he does not list.
+
+FIELDS
+- summary: 1-2 sentences on what the person in this job actually does day to day.
+- why: one line on the fit.
+- matched / gaps: up to 5 short items each (12 words max), concrete.
+- red_flags: things he should know (heavy travel, on-call, contract/temp, hazardous work, unusual hours,
+  required certifications). Never list a PhD requirement here.
+- travel_pct: if stated, else null.
+- salary: if the posting gives a range, source=posted with that range. Otherwise source=estimate: estimate the
+  annual range for this role in the Raleigh-Durham area from the BLS table below, the comparable posted ranges
+  given with the job, and the role's level; say which in basis (one line) and set confidence.
+- apply_figure: a figure in the upper third of the salary range (min + 0.7 x (max - min)), rounded to the nearest
+  1,000, never below the salary floor."""
+
+
+def system_prompt(bank, profile, wage_table, track="lab"):
+    head = f"You screen job postings for one candidate and return JSON only, matching the schema.\n\nCANDIDATE\n{profile_text(bank)}"
+    tail = f"{FIELDS_TEXT}\n\nBLS OEWS WAGES\n{wages.as_text(wage_table)}"
+    if track == "alt":
+        wants = ALT_WANTS.replace("{floor}", f"{profile['salary_floor_usd']:,}")
+        return f"{head}\n\n{wants}\n\n{tail}"
+    return f"""{head}
 
 WHAT HE WANTS
 - Lab or lab-related work. Lane priority: radiochemistry/radiopharma QC first; analytical chemistry and method
@@ -94,25 +149,7 @@ DROP A JOB (drop=true, short drop_reason) WHEN
 - it is director level or above, senior/lead QA, or steady-state supply/logistics operations;
 - the posted pay range tops out below the salary floor.
 
-FIT SCORE (0-100), for jobs not dropped
-90+ near-perfect lane and level, nearly all requirements met · 75-89 strong · 60-74 plausible stretch · below 60 weak.
-Judge only against the candidate's real experience above; do not assume skills he does not list.
-
-FIELDS
-- summary: 1-2 sentences on what the person in this job actually does day to day.
-- why: one line on the fit.
-- matched / gaps: up to 5 short items each (12 words max), concrete.
-- red_flags: things he should know (heavy travel, on-call, contract/temp, hazardous work, unusual hours,
-  required certifications). Never list a PhD requirement here.
-- travel_pct: if stated, else null.
-- salary: if the posting gives a range, source=posted with that range. Otherwise source=estimate: estimate the
-  annual range for this role in the Raleigh-Durham area from the BLS table below, the comparable posted ranges
-  given with the job, and the role's level; say which in basis (one line) and set confidence.
-- apply_figure: a figure in the upper third of the salary range (min + 0.7 x (max - min)), rounded to the nearest
-  1,000, never below the salary floor.
-
-BLS OEWS WAGES
-{wages.as_text(wage_table)}"""
+{tail}"""
 
 
 def _words(title):
@@ -146,7 +183,8 @@ def job_prompt(conn, job):
 
 def rank(job, screen, config):
     s = config["screener"]
-    score = screen["fit_score"] + s["lane_bonus"].get(screen["lane"], 0)
+    bonus = s["alt_lane_bonus"] if job.get("track") == "alt" else s["lane_bonus"]
+    score = screen["fit_score"] + bonus.get(screen["lane"], 0)
     age = filters.age_days(job["posted"])
     if age is not None and age <= 3:
         score += s["fresh_bonus"]
@@ -156,18 +194,25 @@ def rank(job, screen, config):
 
 
 def queue_today(conn, config):
-    """Pick today's applications to prepare: best-ranked screened candidates, up to the daily number."""
+    """Pick today's applications to prepare, per track: best-ranked screened candidates, up to the daily number.
+
+    Jobs Alex picks himself on the dashboard (picked_by = 'alex') don't use up these slots.
+    """
     today = date.today().isoformat()
-    want = config["pilot"]["prepare_per_day"]
-    have = conn.execute("SELECT COUNT(*) FROM jobs WHERE queued_on = ?", (today,)).fetchone()[0]
-    picks = conn.execute("""SELECT id FROM jobs WHERE status = 'candidate' AND fit_score >= ? AND queued_on IS NULL
-                            ORDER BY rank_score DESC LIMIT ?""",
-                         (config["screener"]["min_fit"], max(0, want - have))).fetchall()
-    for r in picks:
-        conn.execute("UPDATE jobs SET status = 'queued', queued_on = ? WHERE id = ?", (today, r["id"]))
-        db.log_event(conn, r["id"], "queued", "picked for preparation")
+    quotas = {"lab": config["pilot"]["prepare_per_day"], "alt": config["alt"]["prepare_per_day"]}
+    total = 0
+    for track, want in quotas.items():
+        have = conn.execute("SELECT COUNT(*) FROM jobs WHERE queued_on = ? AND track = ? AND picked_by = 'auto'",
+                            (today, track)).fetchone()[0]
+        picks = conn.execute("""SELECT id FROM jobs WHERE status = 'candidate' AND track = ? AND fit_score >= ?
+                                AND queued_on IS NULL ORDER BY rank_score DESC LIMIT ?""",
+                             (track, config["screener"]["min_fit"], max(0, want - have))).fetchall()
+        for r in picks:
+            conn.execute("UPDATE jobs SET status = 'queued', queued_on = ?, picked_by = 'auto' WHERE id = ?", (today, r["id"]))
+            db.log_event(conn, r["id"], "queued", f"picked for preparation ({track})")
+        total += len(picks)
     conn.commit()
-    return len(picks)
+    return total
 
 
 def main(argv=None):
@@ -184,15 +229,24 @@ def main(argv=None):
     limit = min(args.limit or s["max_jobs_per_run"], s["max_jobs_per_run"])
     jobs = [dict(r) for r in conn.execute(
         "SELECT * FROM jobs WHERE status = 'candidate' AND screened_at IS NULL ORDER BY posted DESC LIMIT ?", (limit,))]
-    system = system_prompt(bank, profile, wages.load())
+    wage_table = wages.load()
+    systems = {t: system_prompt(bank, profile, wage_table, t) for t in ("lab", "alt")}
 
     if args.dry_run:
-        print(system, "\n\n=== USER ===\n", "\n\n".join(job_prompt(conn, j) for j in jobs[:s["batch_size"]]))
+        for t in ("lab", "alt"):
+            sample = [j for j in jobs if (j["track"] or "lab") == t][:s["batch_size"]]
+            print(f"===== {t} =====\n", systems[t], "\n\n=== USER ===\n", "\n\n".join(job_prompt(conn, j) for j in sample))
         return
 
+    # Batches never mix tracks: each track has its own profile and preferences.
+    batches = []
+    for t in ("lab", "alt"):
+        group = [j for j in jobs if (j["track"] or "lab") == t]
+        batches += [(t, group[i:i + s["batch_size"]]) for i in range(0, len(group), s["batch_size"])]
+
     screened = dropped = failed = 0
-    for i in range(0, len(jobs), s["batch_size"]):
-        batch = jobs[i:i + s["batch_size"]]
+    for track, batch in batches:
+        system = systems[track]
         prompt = "Screen these jobs. Return one entry per job, with the same id.\n\n" + "\n\n".join(job_prompt(conn, j) for j in batch)
         try:
             result = claude.run(conn, "screen", system, prompt, SCHEMA, model=s["model"], jobs=len(batch))

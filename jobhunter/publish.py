@@ -49,7 +49,8 @@ def build_payload(conn):
     rows = lambda sql, *a: [dict(r) for r in conn.execute(sql, a)]
     card_sql = """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles, salary_min,
                          salary_max, lanes, posted, first_seen, description, status, status_reason, fit_score,
-                         rank_score, screen, queued_on, resume, resume_dir, decided_at, submission, submitted_at
+                         rank_score, screen, queued_on, resume, resume_dir, decided_at, submission, submitted_at,
+                         COALESCE(track, 'lab') AS track, picked_by
                   FROM jobs WHERE {} ORDER BY rank_score DESC NULLS LAST, posted DESC"""
     candidates = rows(card_sql.format(
         "status IN ('candidate', 'queued', 'prepared', 'approved', 'ready', 'submit_confirmed', 'needs_you') "
@@ -85,9 +86,13 @@ def build_payload(conn):
                           FROM jobs GROUP BY employer ORDER BY candidates DESC, seen DESC""")
     last_run = rows("SELECT started, finished, summary FROM runs WHERE step = 'scout' ORDER BY id DESC LIMIT 1")
 
-    with open(PRIVATE / "watchlist.yaml", encoding="utf-8") as f:
-        watchlist = [{"name": e["name"], "kind": e["kind"], "note": e.get("note", "")}
-                     for e in yaml.safe_load(f)["employers"]]
+    watchlist = []
+    for name, label in (("watchlist.yaml", ""), ("watchlist_alt.yaml", "Alternative jobs · ")):
+        path = PRIVATE / name
+        if path.exists():
+            with open(path, encoding="utf-8") as f:
+                watchlist += [{"name": e["name"], "kind": e["kind"], "note": label + e.get("note", "")}
+                              for e in yaml.safe_load(f)["employers"]]
 
     return {
         "generated": db.now(),

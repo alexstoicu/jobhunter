@@ -157,11 +157,13 @@
     <div class="tiles" id="tiles"></div>
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="candidates" aria-selected="true">Jobs</button>
+      <button role="tab" data-tab="alt" aria-selected="false">Alternative jobs</button>
       <button role="tab" data-tab="stats" aria-selected="false">Stats</button>
       <button role="tab" data-tab="usage" aria-selected="false">Usage</button>
       <button role="tab" data-tab="watchlist" aria-selected="false">Watchlist</button>
     </div>
     <div id="tab-candidates"></div>
+    <div id="tab-alt" class="hidden"></div>
     <div id="tab-stats" class="hidden"></div>
     <div id="tab-usage" class="hidden"></div>
     <div id="tab-watchlist" class="hidden"></div>
@@ -182,8 +184,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const money = (n) => "$" + Math.round(n / 1000) + "k";
 const num = (n) => Math.round(n || 0).toLocaleString();
-const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP", dev_supply: "Dev supply", other: "Other" };
-const ROLES = { lab: "Lab", qa: "QA", validation: "Validation", management: "Management", development_supply: "Development supply", other: "Other" };
+const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP", dev_supply: "Dev supply",
+  ai: "AI", pm: "Project mgmt", writing: "Tech writing", consulting: "Consulting", informatics: "Informatics",
+  operations: "Operations", techqa: "QA testing", other: "Other" };
+const ROLES = { lab: "Lab", qa: "QA", validation: "Validation", management: "Management", development_supply: "Development supply",
+  ai: "AI", project_management: "Project management", technical_writing: "Technical writing", consulting: "Consulting",
+  informatics: "Informatics", operations: "Operations", software_qa: "Software QA", other: "Other" };
 const STEPS = [["screen", "Screening", "--s1"], ["tailor", "Tailoring", "--s2"], ["verify", "Verifying", "--s3"]];
 let usageModel = null;
 
@@ -200,7 +206,7 @@ const INFO = {
   "Needs you": "The Submitter stopped: a question your answer bank doesn't cover, an account or email-verification step, a CAPTCHA, or a site it can't fill yet. Answer here and it retries; your answers are saved for next time.",
   "Ready to submit": "The employer's form is filled in up to its Review page. Check the answers and screenshot, then tap Submit. (Pilot setting: once the forms prove right, approved applications can be submitted without this second tap.)",
   "Submitted": "Applications sent in the last 30 days, with the answers entered and the confirmation screenshot.",
-  "Other candidates": "Screened jobs that weren't picked today, usually because the fit score is below 60. They stay here until they expire (30 days after posting) or the employer removes them.",
+  "Other candidates": "Screened jobs that weren't picked automatically, usually because the fit score is below 60. Tap Prepare application on any of them to get a tailored resume on the next run; your own picks don't use up the 3 daily slots. They stay here until they expire (30 days after posting) or the employer removes them.",
   "Dropped by the Screener": "Jobs the AI Screener rejected after reading the full posting (not lab work, pay below $75k, shift work, wrong level and so on). Shown for 14 days so you can catch misreads.",
   "Why postings were filtered out": "The free code filters that ran before any AI step, with how many postings each one removed. Tap a reason for what it means.",
   "Candidates by employer": "How many jobs from each employer are currently candidates or queued.",
@@ -388,8 +394,15 @@ function card(j, i) {
     ${s ? `<div class="lists">${list("Matches", s.matched)}${list("Gaps", s.gaps)}</div>` : ""}
     <div class="pay">${pay}</div>
     ${section("Duties", j.duties)}${section("Requirements", j.requirements)}
-    ${resumeBlock(j)}
+    ${resumeBlock(j)}${prepareBlock(j)}
   </article>`;
+}
+
+function prepareBlock(j) {
+  if (pending(j)?.decision === "prepare" || j.status === "queued")
+    return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the next run (12:00, 18:00 or 02:00)</div>`;
+  if (j.status !== "candidate") return "";
+  return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button></div>`;
 }
 
 function resumeBlock(j) {
@@ -422,7 +435,7 @@ function resumeBlock(j) {
 }
 
 // The decision Alex made on this device or another that the PC hasn't applied yet.
-const PRE_STATE = { approve: "prepared", reject: "prepared", submit: "ready", answers: "needs_you" };
+const PRE_STATE = { prepare: "candidate", approve: "prepared", reject: "prepared", submit: "ready", answers: "needs_you" };
 function pending(j) {
   const d = decisions[j.id];
   return d && PRE_STATE[d.decision] === j.status ? d : null;
@@ -473,6 +486,7 @@ document.addEventListener("click", async (e) => {
   try {
     if (b.dataset.act === "pdf") openPdf(id);
     else if (b.dataset.act === "approve") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "approve", null); }
+    else if (b.dataset.act === "prepare") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "prepare", null); }
     else if (b.dataset.act === "submit") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "submit", null); }
     else if (b.dataset.act === "answers") {
       const card = b.closest(".card"), given = {};
@@ -550,27 +564,23 @@ function wireEstimator(u) {
   n.addEventListener("input", upd); upd();
 }
 
-function render(d) {
-  const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
-  const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
+function jobsTab(d, track) {
+  const mine = (j) => (j.track || "lab") === track;
+  const cands = d.candidates.filter(mine);
   const is = (j, ...s) => s.includes(j.status) && !pending(j);
   const pendingReject = (j) => pending(j)?.decision === "reject";
-  const toApprove = d.candidates.filter((j) => is(j, "prepared"));
-  const needsYou = d.candidates.filter((j) => is(j, "needs_you"));
-  const ready = d.candidates.filter((j) => is(j, "ready"));
-  const approved = d.candidates.filter((j) => (is(j, "approved", "submit_confirmed") || (pending(j) && !pendingReject(j))));
-  const submitted = d.candidates.filter((j) => j.status === "submitted");
-  const rejected = d.rejected.concat(d.candidates.filter(pendingReject));
-  const queued = d.candidates.filter((j) => j.status === "queued");
-  const others = d.candidates.filter((j) => j.status === "candidate");
-  $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
-  $("tiles").innerHTML = [
-    [total, "postings seen"], [["candidate", "queued", "prepared", "approved", "rejected", "screened_out"].reduce((a, s) => a + count(s), 0), "passed hard filters"],
-    [count("candidate") + count("queued") + count("prepared") + count("approved"), "after screening"], [toApprove.length, "to approve"],
-  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${term(t)}</span></div>`).join("");
-
-  $("tab-candidates").innerHTML =
-    (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
+  const pendingPrepare = (j) => pending(j)?.decision === "prepare";
+  const toApprove = cands.filter((j) => is(j, "prepared"));
+  const needsYou = cands.filter((j) => is(j, "needs_you"));
+  const ready = cands.filter((j) => is(j, "ready"));
+  const approved = cands.filter((j) => is(j, "approved", "submit_confirmed") || (pending(j) && !pendingReject(j) && !pendingPrepare(j)));
+  const submitted = cands.filter((j) => j.status === "submitted");
+  const rejected = d.rejected.filter(mine).concat(cands.filter(pendingReject));
+  const queued = cands.filter((j) => j.status === "queued" || pendingPrepare(j));
+  const others = cands.filter((j) => is(j, "candidate"));
+  const dropped = d.screened_out.filter(mine);
+  return (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
+    (track === "alt" ? `<p class="sub" style="margin-top:12px">Roles outside the lab that use your transferable skills: AI implementation, project management, technical writing, consulting, informatics, operations and QA testing. Resumes for these lead with management, documentation and AI.</p>` : "") +
     (needsYou.length ? h2("Needs you", ` · ${needsYou.length}`) + needsYou.map(card).join("") : "") +
     (ready.length ? h2("Ready to submit", ` · ${ready.length}`) + ready.map(card).join("") : "") +
     h2("To approve", ` · ${toApprove.length}`) +
@@ -581,11 +591,25 @@ function render(d) {
     (queued.length ? queued.map(card).join("") : `<p class="empty">Nothing queued.</p>`) +
     h2("Other candidates", ` · ${others.length}`) +
     (others.length ? others.map(card).join("") : `<p class="empty">None.</p>`) +
-    h2("Dropped by the Screener", ` · last 14 days · ${d.screened_out.length}`) +
-    (d.screened_out.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${d.screened_out.map(card).join("")}</details>`
-                           : `<p class="empty">None.</p>`) +
+    h2("Dropped by the Screener", ` · last 14 days · ${dropped.length}`) +
+    (dropped.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${dropped.map(card).join("")}</details>`
+                    : `<p class="empty">None.</p>`) +
     (rejected.length ? h2("Rejected by you", ` · last 14 days · ${rejected.length}`) +
       `<details><summary>Show</summary>${rejected.map(card).join("")}</details>` : "");
+}
+
+function render(d) {
+  const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
+  const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
+  const toApprove = d.candidates.filter((j) => j.status === "prepared" && !pending(j)).length;
+  $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
+  $("tiles").innerHTML = [
+    [total, "postings seen"], [["candidate", "queued", "prepared", "approved", "ready", "submit_confirmed", "needs_you", "submitted", "rejected", "screened_out"].reduce((a, s) => a + count(s), 0), "passed hard filters"],
+    [["candidate", "queued", "prepared", "approved", "ready", "submit_confirmed", "needs_you", "submitted"].reduce((a, s) => a + count(s), 0), "after screening"], [toApprove, "to approve"],
+  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${term(t)}</span></div>`).join("");
+
+  $("tab-candidates").innerHTML = jobsTab(d, "lab");
+  $("tab-alt").innerHTML = jobsTab(d, "alt");
 
   $("tab-stats").innerHTML =
     h2("Why postings were filtered out") + bars(d.stats.by_reason.slice(0, 15), "reason", "n", reasonInfo) +

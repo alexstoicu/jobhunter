@@ -165,7 +165,26 @@ def greenhouse_detail(feed, posting):
     return {}
 
 
+# --- Ashby: feed = job board slug (one call, with descriptions) ---
+
+def ashby_search(feed, terms):
+    data = request_json(f"https://api.ashbyhq.com/posting-api/job-board/{feed}?includeCompensation=true")
+    return [{
+        "external_id": j["id"],
+        "title": j["title"],
+        "location": f"{j.get('location', '')} {'Remote' if j.get('isRemote') else ''} {j.get('workplaceType') or ''}",
+        "url": j.get("jobUrl"),
+        "posted": j.get("publishedAt"),
+        "description": j.get("descriptionPlain") or html_to_text(j.get("descriptionHtml")),
+    } for j in data.get("jobs", [])]
+
+
+def ashby_detail(feed, posting):
+    return {}
+
+
 KINDS = {
+    "ashby": (ashby_search, ashby_detail),
     "workday": (workday_search, workday_detail),
     "phenom": (phenom_search, phenom_detail),
     "smartrecruiters": (smartrecruiters_search, smartrecruiters_detail),

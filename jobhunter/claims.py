@@ -30,6 +30,8 @@ def _items(bank):
     for role in bank["roles"]:
         for item in role["bullets"]:
             yield item["id"], item["text"]
+    for item in bank.get("projects", {}).get("items", []):
+        yield item["id"], item["text"]
     for item in bank["education"]:
         yield item["id"], item["degree"]
     for item in bank["recognition"] + bank["languages"]:
@@ -75,6 +77,7 @@ def validate(bank):
     # An unquoted comma in a flow-style item ({id: x, text: a, b}) splits the text into stray keys.
     flow_items = [i for g in bank["skills"].values() for i in g] + bank["recognition"] + bank["languages"]
     flow_items += [b for r in bank["roles"] for b in r["bullets"]]
+    flow_items += bank.get("projects", {}).get("items", [])
     for item in flow_items:
         stray = set(item) - {"id", "text"}
         if stray:

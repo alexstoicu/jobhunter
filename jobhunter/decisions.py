@@ -3,6 +3,7 @@
 The dashboard writes docs/decisions.enc.json to the repo (encrypted in the browser with the
 dashboard password): {"<job id>": {"decision": ..., "reason": ..., "answers": {...}, "at": ...}}.
 
+  prepare           on a candidate     -> queued (Alex's own pick; doesn't use a daily slot)
   approve / reject  on a prepared job  -> approved / rejected
   submit            on a ready job     -> submit_confirmed (the Submitter clicks Submit next run)
   answers           on a needs_you job -> answers are added to the answer bank; job back to approved
@@ -13,6 +14,7 @@ Run: .venv\\Scripts\\python -m jobhunter.decisions
 import json
 import subprocess
 import sys
+from datetime import date
 
 import keyring
 
@@ -39,7 +41,11 @@ def main(argv=None):
         if not row or (row["decided_at"] and row["decided_at"] >= at):
             continue  # unknown job or already applied
         status, kind = row["status"], d["decision"]
-        if status == "prepared" and kind in ("approve", "reject"):
+        if status == "candidate" and kind == "prepare":
+            conn.execute("UPDATE jobs SET queued_on = ?, picked_by = 'alex' WHERE id = ?",
+                         (date.today().isoformat(), int(job_id)))
+            new = "queued"
+        elif status == "prepared" and kind in ("approve", "reject"):
             new = "approved" if kind == "approve" else "rejected"
         elif status == "ready" and kind == "submit":
             new = "submit_confirmed"

@@ -92,6 +92,8 @@ MIGRATIONS = [
     ("jobs", "decided_at", "TEXT"),        # time of the last dashboard decision applied (approve/reject/submit/answers)
     ("jobs", "submission", "TEXT"),        # Submitter record, JSON: answers given, questions for Alex, screenshots
     ("jobs", "submitted_at", "TEXT"),
+    ("jobs", "track", "TEXT DEFAULT 'lab'"),  # lab / alt (alternative jobs)
+    ("jobs", "picked_by", "TEXT"),            # auto (daily ranking) / alex (Prepare button on the dashboard)
 ]
 
 

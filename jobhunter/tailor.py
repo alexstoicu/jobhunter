@@ -42,6 +42,7 @@ PLAN_SCHEMA = {
                 "note": {"type": "boolean"},
                 "bullets": {"type": "array", "items": LINE}}}},
         "recognition": {"type": "array", "items": {"type": "string"}},
+        "projects": {"type": "array", "items": LINE, "maxItems": 6},
     },
 }
 
@@ -73,8 +74,23 @@ RULES
 - Summary: 2-4 sentences leading with the strengths this job values most.
 - Skills: 3-4 groups with job-relevant labels, most relevant items first.
 - recognition: the rec.* IDs worth listing for this job (may be empty).
+- projects: lines for the "AI & Technology Projects" section, citing only ai.* claims. Include them
+  when they help this job; for lab jobs usually 0-2 (e.g. AI-assisted GxP documentation).
 - Plain, professional US resume English. No first person. No contact details, dates or employer
   names in your text (those are filled in from the claim bank)."""
+
+ALT_GUIDANCE = """
+
+THIS IS AN ALTERNATIVE-TRACK JOB (outside the lab: AI implementation, project management, technical
+writing, consulting, informatics, operations or QA testing).
+- Lead the summary with the transferable strengths this job values: managing multiple labs and teams,
+  priorities and decisions, assets, vendors and supply, GxP documentation, and hands-on AI work.
+- Translate lab wording into general business language where the cited claim supports it (e.g.
+  "instrument lifecycle" -> "equipment lifecycle"), but never add scope, numbers or results.
+- Condense pure bench-technique detail; keep regulated-environment and documentation experience.
+- Use 3-6 projects lines. Skills groups should feature AI & technology and management first.
+- Roles that are relevant here may differ from lab jobs (e.g. the EA software QA tester role for QA
+  testing jobs)."""
 
 VERIFY_SYSTEM = """You check resume lines for faithfulness. For each line you get its text and the
 source claims it cites. ok=true only if every fact in the line (tools, techniques, numbers, scope,
@@ -96,7 +112,7 @@ def claims_index(bank):
             index[b["id"]] = b["text"]
     for e in bank["education"]:
         index[e["id"]] = e["degree"]
-    for x in bank["recognition"] + bank["languages"]:
+    for x in bank["recognition"] + bank["languages"] + bank.get("projects", {}).get("items", []):
         index[x["id"]] = x["text"]
     return index, {r["id"]: r for r in bank["roles"]}
 
@@ -110,6 +126,10 @@ def bank_text(bank):
     for r in bank["roles"]:
         lines.append(f"\nrole {r['id']}: {r['title']} | {r.get('employer') or ''} | {r['start']} to {r['end']}")
         lines += [f"  [{b['id']}] {b['text']}" for b in r["bullets"]]
+    projects = bank.get("projects")
+    if projects:
+        lines.append(f"\nPROJECT CLAIMS ({projects['heading']}, {projects['start']} to {projects['end']})")
+        lines += [f"[{p['id']}] {p['text']}" for p in projects["items"]]
     lines.append("\nRECOGNITION")
     lines += [f"[{x['id']}] {x['text']}" for x in bank["recognition"]]
     return "\n".join(lines)
@@ -153,7 +173,8 @@ def code_check(plan, bank, max_bullets=6):
             problems.append(f"dropped line citing {bad}: {line['text'][:60]}")
         return not bad and line["text"].strip()
 
-    plan["summary"] = [l for l in plan["summary"] if valid(l, ("sum.",) + tuple(f"{r}." for r in roles))]
+    plan["summary"] = [l for l in plan["summary"] if valid(l, ("sum.", "ai.") + tuple(f"{r}." for r in roles))]
+    plan["projects"] = [restore(l, index, problems) for l in plan.get("projects", []) if valid(l, ("ai.",))]
     for group in plan["skills"]:
         group["items"] = [l for l in group["items"] if valid(l, ("sk.",))]
     plan["skills"] = [g for g in plan["skills"] if g["items"]]
@@ -193,6 +214,8 @@ def ai_check(conn, plan, bank, model):
     for r in plan["roles"]:
         for i, l in enumerate(r["bullets"]):
             lines[f"{r['id']}.{i}"] = l
+    for i, l in enumerate(plan.get("projects", [])):
+        lines[f"projects.{i}"] = l
     payload = "\n\n".join(
         f"key={k}\nLINE: {l['text']}\nSOURCES:\n" + "\n".join(f"- {index[c]}" for c in l["cites"])
         for k, l in lines.items())
@@ -207,6 +230,7 @@ def ai_check(conn, plan, bank, model):
         r["bullets"] = [l for l in r["bullets"] if not l.pop("drop")]
         if r["mode"] == "full" and not r["bullets"]:
             r["mode"] = "brief"
+    plan["projects"] = [l for l in plan.get("projects", []) if not l.pop("drop")]
     return rejected
 
 
@@ -289,6 +313,13 @@ def render_docx(plan, bank, path):
         elif item.get("note"):
             para("Experience outside the scope of this role.", size=9.5)
 
+    projects = bank.get("projects")
+    if projects and plan.get("projects"):
+        heading(projects["heading"])
+        para(f"{_month(projects['start'])} – {_month(projects['end'])}", size=9.5, after=1)
+        for l in plan["projects"]:
+            bullet(l["text"])
+
     heading("Education")
     for e in bank["education"]:
         years = f"{_month(e['start'])} – {_month(e['end'])}"
@@ -316,6 +347,8 @@ def plain_text(plan, bank):
         r = roles[item["id"]]
         out.append(f"{r['title']} | {r.get('employer') or ''} | {_month(r['start'])} – {_month(r['end'])}")
         out += [f"  • {b['text']}" for b in item["bullets"]]
+    if plan.get("projects"):
+        out += ["", bank["projects"]["heading"].upper()] + [f"  • {l['text']}" for l in plan["projects"]]
     return "\n".join(out)
 
 
@@ -333,6 +366,8 @@ def prepare(conn, job, bank, config, make_pdf=True, rerender=False):
     else:
         screen = json.loads(job["screen"])
         system = TAILOR_SYSTEM.replace("{max_bullets}", str(t["max_bullets_per_role"]))
+        if job.get("track") == "alt":
+            system += ALT_GUIDANCE
         prompt = f"CLAIM BANK\n{bank_text(bank)}\n\n{job_text(job, screen)}"
         plan = claude.run(conn, "tailor", system, prompt, PLAN_SCHEMA, model=t["model"], jobs=1)
         plan, code_problems = code_check(plan, bank, t["max_bullets_per_role"])

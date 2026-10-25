@@ -20,6 +20,14 @@ OCCUPATIONS = {
     "131041": "Compliance officers",
     "131081": "Logisticians",
     "194099": "Life, physical, social science technicians (other)",
+    # alternative track
+    "131082": "Project management specialists",
+    "273042": "Technical writers",
+    "131111": "Management analysts (consultants)",
+    "151211": "Computer systems analysts",
+    "151253": "Software QA analysts and testers",
+    "113013": "Facilities managers",
+    "131199": "Business operations specialists (other)",
 }
 PERCENTILES = {"11": "p10", "12": "p25", "13": "median", "14": "p75", "15": "p90"}
 

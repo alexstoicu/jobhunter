@@ -20,6 +20,10 @@ def load_settings():
         profile = yaml.safe_load(f)
     with open(PRIVATE / "watchlist.yaml", encoding="utf-8") as f:
         watchlist = yaml.safe_load(f)["employers"]
+    alt_path = PRIVATE / "watchlist_alt.yaml"  # employers for the alternative track
+    if alt_path.exists():
+        with open(alt_path, encoding="utf-8") as f:
+            watchlist += yaml.safe_load(f)["employers"]
     return config, profile, watchlist
 
 
@@ -58,7 +62,8 @@ def evaluate(conn, job, config, profile):
     if job["salary_max"] and job["salary_max"] < profile["salary_floor_usd"]:
         return "filtered_out", f"pay up to ${job['salary_max']:,.0f}"
 
-    lanes = filters.match_lanes(f"{job['title']}\n{job['description']}", config["lanes"])
+    lane_set = config["alt"]["lanes"] if job.get("track") == "alt" else config["lanes"]
+    lanes = filters.match_lanes(f"{job['title']}\n{job['description']}", lane_set)
     job["lanes"] = ",".join(lanes)
     if not lanes:
         return "filtered_out", "no lane keywords"
@@ -81,22 +86,31 @@ def fingerprint(employer, title, location):
 def scout_employer(conn, employer, config, profile):
     search, detail = KINDS[employer["kind"]]
     scout = config["scout"]
-    postings = search(employer["feed"], scout["search_terms"])
+    terms = list(dict.fromkeys(scout["search_terms"] + config.get("alt", {}).get("search_terms", [])))
+    postings = search(employer["feed"], terms)
     counts = {"seen": len(postings), "new": 0, "candidate": 0}
     stamp = db.now()
 
     for p in postings:
         key = (employer["kind"], employer["name"], p["external_id"])
-        existing = conn.execute("SELECT id FROM jobs WHERE source = ? AND employer = ? AND external_id = ?", key).fetchone()
+        existing = conn.execute("SELECT id, status, status_reason FROM jobs WHERE source = ? AND employer = ? AND external_id = ?",
+                                key).fetchone()
         if existing:
-            conn.execute("UPDATE jobs SET last_seen = ? WHERE id = ?", (stamp, existing["id"]))
-            continue
+            # A title dropped under older rules gets a second look when the rules now accept it.
+            retry = (existing["status"] == "filtered_out" and (existing["status_reason"] or "").startswith("title")
+                     and filters.track_verdict(p["title"], config)[0])
+            if not retry:
+                conn.execute("UPDATE jobs SET last_seen = ? WHERE id = ?", (stamp, existing["id"]))
+                continue
+            conn.execute("DELETE FROM events WHERE job_id = ?", (existing["id"],))
+            conn.execute("DELETE FROM jobs WHERE id = ?", (existing["id"],))
         counts["new"] += 1
 
         job = {"employer": employer["name"], "description": p.get("description") or "", **p}
         job["posted"] = filters.posted_date(p.get("posted"))
         age = filters.age_days(job["posted"])
-        title_ok, title_reason = filters.title_verdict(p["title"], scout)
+        track, title_reason = filters.track_verdict(p["title"], config)
+        title_ok, job["track"] = track is not None, track or "lab"
         if age is not None and age > scout["max_age_days"]:
             status, reason = "filtered_out", f"posted over {scout['max_age_days']} days ago"
         elif not title_ok:
@@ -114,13 +128,13 @@ def scout_employer(conn, employer, config, profile):
         cur = conn.execute(
             """INSERT INTO jobs (source, employer, external_id, title, location, url, posted, description,
                    salary_min, salary_max, work_mode, city, drive_min, drive_miles, lanes, fingerprint,
-                   status, status_reason, first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   status, status_reason, first_seen, last_seen, track)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (*key, p["title"], job.get("location"), job.get("url"), job["posted"], job.get("description"),
              job.get("salary_min"), job.get("salary_max"), job.get("work_mode"), job.get("city"),
              job.get("drive_min"), job.get("drive_miles"), job.get("lanes"),
              job.get("fingerprint") or fingerprint(employer["name"], p["title"], p.get("location")),
-             status, reason, stamp, stamp))
+             status, reason, stamp, stamp, job["track"]))
         db.log_event(conn, cur.lastrowid, "found", f"{status}: {reason or ''}")
         if status == "candidate":
             counts["candidate"] += 1

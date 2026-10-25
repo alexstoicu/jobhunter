@@ -51,11 +51,56 @@ scout:
                   "applications specialist", commercial, informatics, AI, agentic, computational, modeling, modelling,
                   digital, "post doctoral", postdoctoral, "post-doctoral", clerk, trainee, biorepository,
                   "disease biology", "antibody discovery", oncology, "translational", "process engineer", "upstream",
-                  thesis, "automation engineer", mobile, freelance*, cytolog*, genomic*]
+                  thesis, "automation engineer", mobile, freelance*, cytolog*, genomic*, game*, tester, playtest*]
   max_age_days: 30
   repost_window_days: 60
   # Drive times come from OSRM without traffic; within this many minutes of the limit is flagged "borderline".
   borderline_minutes: 5
+
+# Alternative track: roles that use Alex's transferable skills (AI, management, documentation),
+# outside the lab. Same hard rules as the lab track (age, commute/remote, pay, level, shifts).
+alt:
+  prepare_per_day: 3
+  lanes:
+    ai:
+      name: AI implementation and automation
+      keywords: [AI, "artificial intelligence", LLM, "generative AI", GenAI, "machine learning", agent*, automation, "prompt engineer*", copilot, "AI enablement", "AI adoption", "AI solutions"]
+    pm:
+      name: Project and program management
+      keywords: ["project manag*", "program manag*", PMO, "project coordinat*", "project lead", scrum, agile, "delivery manag*", "implementation manag*"]
+    writing:
+      name: Technical writing and documentation
+      keywords: ["technical writ*", documentation, "document control", "content develop*", "SOP", "standard operating procedure*", "procedure writ*"]
+    consulting:
+      name: Consulting and implementation
+      keywords: [consultant, consulting, "implementation", "solutions engineer*", "customer success", advisory, "professional services"]
+    informatics:
+      name: Lab informatics and data
+      keywords: [LIMS, informatics, ELN, "data integrity", "laboratory systems", Benchling, LabWare, LabVantage, "data analyst", Python]
+    operations:
+      name: Operations, assets and supply
+      keywords: ["operations manag*", "lab operations", "facilit*", "asset manag*", "equipment manag*", "vendor manag*", "supply chain", procurement]
+    techqa:
+      name: Software and game QA
+      keywords: ["QA tester", "quality assurance tester", "game test*", "software test*", "test analyst", "QA analyst", "playtest*"]
+  search_terms: [AI, "artificial intelligence", automation, "project manager", "program manager", "technical writer",
+                 documentation, consultant, implementation, LIMS, informatics, "operations manager", "QA tester"]
+  # A title must contain one of these (same matching rules as the lab track).
+  title_include: [AI, "artificial intelligence", "machine learning", LLM, GenAI, automation, agent*, "prompt",
+                  "project manag*", "program manag*", "project coordinat*", "project lead", PMO, scrum,
+                  "technical writ*", writer, documentation, "document control", "content",
+                  consultant, consulting, implementation, "solutions", "customer success", advisor,
+                  LIMS, informatics, ELN, "systems analyst", "data analyst", "business analyst",
+                  "operations", "facilit*", "asset", "equipment", "vendor", "supply chain",
+                  "QA tester", "test analyst", "game test*", "software test*", "QA analyst", playtest*, trainer, "subject matter expert", SME]
+  title_exclude: [director, "vice president", VP, SVP, EVP, chief, president, head, "senior manager", "sr manager", "sr. manager",
+                  intern, internship, co-op, student, "graduate program", "new grad", apprentice*, sales, "account executive",
+                  "account manager", "business development", driver, nurse, physician, pharmacist, technologist, clinical,
+                  recruiter, "human resources", payroll, accountant, finance, "field service", warehouse, "forklift",
+                  "medical", "regulatory affairs", thesis, freelance*, "software engineer", "senior engineer", "staff engineer",
+                  "principal engineer", architect, "data scientist", "machine learning engineer", devops, "site reliability",
+                  backend, "back-end", frontend, "front-end", "full stack", "full-stack", "data engineer", "ML engineer",
+                  "AI engineer", "research engineer", "research scientist", developer, software, SRE, "security engineer"]
 
 screener:
   model: sonnet
@@ -64,6 +109,7 @@ screener:
   min_fit: 60              # below this a job is not queued for preparation (pilot value; tune from rejections)
   # Ranking = fit score + these adjustments. Lab lanes first; QA is the lowest priority.
   lane_bonus: {radiochem: 10, analytical: 6, el: 6, dev_supply: 3, qa: -8, other: -10}
+  alt_lane_bonus: {ai: 10, pm: 7, writing: 7, consulting: 7, informatics: 4, operations: 2, techqa: 0, other: -10}
   fresh_bonus: 5           # posted within 3 days
   near_bonus: 3            # remote or within 15 minutes
 

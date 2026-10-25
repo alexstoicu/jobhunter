@@ -44,6 +44,17 @@ def title_verdict(title, rules):
     return False, "title: not lab or QA"
 
 
+def track_verdict(title, config):
+    """Which track a title belongs to: ("lab" | "alt" | None, reason when None)."""
+    ok, reason = title_verdict(title, config["scout"])
+    if ok:
+        return "lab", None
+    alt = config.get("alt")
+    if alt and not _any(title, alt["title_exclude"]) and _any(title, alt["title_include"]):
+        return "alt", None
+    return None, reason
+
+
 def posted_date(posted, seen=None):
     """Normalize a feed's posted value to an ISO date, or None if unknown.
 

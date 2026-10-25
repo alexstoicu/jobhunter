@@ -18,8 +18,8 @@ STEPS = [
     ("submit", "jobhunter.submit", []),
     ("publish", "jobhunter.publish", ["--push"]),
 ]
-# 12:00 and 18:00: act on Alex's decisions without scouting again.
-SUBMIT_STEPS = [s for s in STEPS if s[0] in ("decisions", "submit", "publish")]
+# 12:00 and 18:00: act on Alex's decisions (incl. jobs he picked to prepare) without scouting again.
+SUBMIT_STEPS = [s for s in STEPS if s[0] in ("decisions", "tailor", "submit", "publish")]
 
 
 def main():

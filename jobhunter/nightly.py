@@ -15,17 +15,21 @@ STEPS = [
     ("scout", "jobhunter.scout", []),
     ("screen", "jobhunter.screen", []),
     ("tailor", "jobhunter.tailor", []),
+    ("submit", "jobhunter.submit", []),
     ("publish", "jobhunter.publish", ["--push"]),
 ]
+# 12:00 and 18:00: act on Alex's decisions without scouting again.
+SUBMIT_STEPS = [s for s in STEPS if s[0] in ("decisions", "submit", "publish")]
 
 
 def main():
+    steps = SUBMIT_STEPS if "--submit-only" in sys.argv else STEPS
     logs = DATA / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     failed = []
     with open(logs / f"nightly-{date.today().isoformat()}.log", "a", encoding="utf-8", buffering=1) as log, \
             contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-        for name, module, args in STEPS:
+        for name, module, args in steps:
             print(f"=== {name}")
             try:
                 mod = __import__(module, fromlist=["main"])

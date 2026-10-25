@@ -52,8 +52,8 @@
   .card.queued { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .card .head { display: flex; gap: 12px; align-items: flex-start; }
   .card .head > div { flex: 1; min-width: 0; }
-  .score { flex: none; width: 46px; height: 46px; border-radius: 10px; display: grid; place-items: center;
-           font-weight: 700; font-size: 18px; background: var(--chip); font-variant-numeric: tabular-nums; }
+  .score { flex: none; align-self: flex-start; padding: 1px 7px; border-radius: 6px; line-height: 1.4;
+           font-weight: 700; font-size: 14px; background: var(--chip); font-variant-numeric: tabular-nums; }
   .score.hi { background: var(--accent-soft); color: var(--accent); }
   .score.mid { background: var(--warn-soft); color: var(--warn); }
   .card h3 { margin: 0; font-size: 16px; line-height: 1.35; }
@@ -286,6 +286,8 @@ async function gh(method, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (method === "GET" && res.status === 404) return null;
+  if (res.status === 403 && method === "PUT")
+    throw new Error("GitHub refused to save: the token can read but not write. On github.com edit the token: Repository access → only jobhunter; Repository permissions → Contents → Read and write. Then tap again.");
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.json().catch(() => ({}))).message || "request failed"}`);
   return res.json();
 }
@@ -555,7 +557,7 @@ $("savetoken").addEventListener("click", async () => {
   if (!t) return;
   lsSet(TOKEN_KEY, t);
   $("token").value = "";
-  try { await gh("GET"); $("tokenmsg").textContent = "Saved and working."; await loadDecisions(); render(DATA); }
+  try { await gh("GET"); $("tokenmsg").textContent = "Saved. Reading works; make sure the token also has Contents: Read and write."; await loadDecisions(); render(DATA); }
   catch (e) { $("tokenmsg").textContent = "Saved, but GitHub refused it: " + e.message; }
 });
 $("cleartoken").addEventListener("click", () => { lsSet(TOKEN_KEY, null); openSettings("Token removed from this device."); render(DATA); });

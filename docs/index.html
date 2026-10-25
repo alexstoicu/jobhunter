@@ -202,7 +202,7 @@ const INFO = {
   "To approve": "Each of these has a tailored resume built only from your claim bank and fact-checked line by line. Approve sends it to the Submitter (Stage 4); Reject records your reason so ranking learns from it.",
   "Approved": "Applications you approved. The Submitter (Stage 4) fills and submits the employer's form; until then they wait here.",
   "To prepare": "Today's top picks (fit 60+), up to 3 a day. The Tailor builds their resumes on the next nightly run.",
-  "Rejected by you": "Applications you rejected, with your reason, for the last 14 days.",
+  "Rejected by you": "Jobs you rejected, with your reason, for the last 14 days. A rejected job never comes back: if the employer reposts it, the Scout recognizes it and skips it.",
   "Needs you": "The Submitter stopped: a question your answer bank doesn't cover, an account or email-verification step, a CAPTCHA, or a site it can't fill yet. Answer here and it retries; your answers are saved for next time.",
   "Ready to submit": "The employer's form is filled in up to its Review page. Check the answers and screenshot, then tap Submit. (Pilot setting: once the forms prove right, approved applications can be submitted without this second tap.)",
   "Submitted": "Applications sent in the last 30 days, with the answers entered and the confirmation screenshot.",
@@ -399,10 +399,14 @@ function card(j, i) {
 }
 
 function prepareBlock(j) {
-  if (pending(j)?.decision === "prepare" || j.status === "queued")
-    return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the next run (12:00, 18:00 or 02:00)</div>`;
+  const d = pending(j);
+  if (d?.decision === "reject") return "";  // resumeBlock or the Rejected section shows it
+  const reject = `<button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>`;
+  if (d?.decision === "prepare" || j.status === "queued")
+    return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the next run (12:00, 18:00 or 02:00)</div>
+      ${j.status === "queued" ? `<div class="actions">${reject}</div>${reasonChips(j.id)}` : ""}`;
   if (j.status !== "candidate") return "";
-  return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button></div>`;
+  return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button>${reject}</div>${reasonChips(j.id)}`;
 }
 
 function resumeBlock(j) {
@@ -435,11 +439,15 @@ function resumeBlock(j) {
 }
 
 // The decision Alex made on this device or another that the PC hasn't applied yet.
-const PRE_STATE = { prepare: "candidate", approve: "prepared", reject: "prepared", submit: "ready", answers: "needs_you" };
+const PRE_STATE = { prepare: ["candidate"], approve: ["prepared"], submit: ["ready"], answers: ["needs_you"],
+  reject: ["candidate", "queued", "prepared", "approved", "ready", "needs_you"] };
 function pending(j) {
   const d = decisions[j.id];
-  return d && PRE_STATE[d.decision] === j.status ? d : null;
+  return d && (PRE_STATE[d.decision] || []).includes(j.status) ? d : null;
 }
+
+const reasonChips = (id) => `<div class="reasons hidden" id="reasons-${id}">${REJECT_REASONS.map((r) =>
+  `<button type="button" data-act="reason" data-id="${id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
 
 function submissionBlock(j) {
   const s = j.submission || {};
@@ -576,7 +584,7 @@ function jobsTab(d, track) {
   const approved = cands.filter((j) => is(j, "approved", "submit_confirmed") || (pending(j) && !pendingReject(j) && !pendingPrepare(j)));
   const submitted = cands.filter((j) => j.status === "submitted");
   const rejected = d.rejected.filter(mine).concat(cands.filter(pendingReject));
-  const queued = cands.filter((j) => j.status === "queued" || pendingPrepare(j));
+  const queued = cands.filter((j) => (j.status === "queued" && !pending(j)) || pendingPrepare(j));
   const others = cands.filter((j) => is(j, "candidate"));
   const dropped = d.screened_out.filter(mine);
   return (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +

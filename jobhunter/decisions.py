@@ -5,6 +5,7 @@ dashboard password): {"<job id>": {"decision": ..., "reason": ..., "answers": {.
 
   prepare           on a candidate     -> queued (Alex's own pick; doesn't use a daily slot)
   approve / reject  on a prepared job  -> approved / rejected
+  reject            on any open job    -> rejected for good (reposts are treated as duplicates)
   submit            on a ready job     -> submit_confirmed (the Submitter clicks Submit next run)
   answers           on a needs_you job -> answers are added to the answer bank; job back to approved
 Each entry is applied once: only when its "at" is newer than the job's decided_at.
@@ -54,8 +55,8 @@ def main(argv=None):
                 if reply:
                     answers.learn(question, reply)
             new = "approved"
-        elif kind == "reject" and status in ("approved", "ready", "needs_you"):
-            new = "rejected"
+        elif kind == "reject" and status in ("candidate", "queued", "approved", "ready", "needs_you"):
+            new = "rejected"  # permanent: reposts of a rejected job are caught as duplicates by the Scout
         else:
             continue
         conn.execute("UPDATE jobs SET status = ?, status_reason = ?, decided_at = ? WHERE id = ?",

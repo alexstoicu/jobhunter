@@ -69,10 +69,14 @@ def evaluate(conn, job, config, profile):
         return "filtered_out", "no lane keywords"
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=scout["repost_window_days"])).isoformat()
+    # Jobs Alex rejected stay out for good; other reposts only within the repost window.
     repost = conn.execute(
-        "SELECT id FROM jobs WHERE fingerprint = ? AND external_id != ? AND first_seen >= ? "
-        "AND status NOT IN ('filtered_out')", (job["fingerprint"], job["external_id"], cutoff)).fetchone()
+        "SELECT id, status FROM jobs WHERE fingerprint = ? AND external_id != ? "
+        "AND (status = 'rejected' OR (first_seen >= ? AND status NOT IN ('filtered_out'))) "
+        "ORDER BY status = 'rejected' DESC", (job["fingerprint"], job["external_id"], cutoff)).fetchone()
     if repost:
+        if repost["status"] == "rejected":
+            return "duplicate", f"repost of job {repost['id']}, which you rejected"
         return "duplicate", f"repost of job {repost['id']}"
 
     return "candidate", None

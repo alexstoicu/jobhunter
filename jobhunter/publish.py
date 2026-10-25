@@ -39,17 +39,24 @@ def encrypt(payload, password):
 
 def build_payload(conn):
     rows = lambda sql, *a: [dict(r) for r in conn.execute(sql, a)]
-    candidates = rows(
-        """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles,
-                  salary_min, salary_max, lanes, posted, first_seen, description
-           FROM jobs WHERE status = 'candidate' ORDER BY posted DESC, employer""")
-    for job in candidates:
+    card_sql = """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles, salary_min,
+                         salary_max, lanes, posted, first_seen, description, status, status_reason, fit_score,
+                         rank_score, screen, queued_on
+                  FROM jobs WHERE {} ORDER BY rank_score DESC NULLS LAST, posted DESC"""
+    candidates = rows(card_sql.format("status IN ('candidate', 'queued')"))
+    screened_out = rows(card_sql.format("status = 'screened_out' AND screened_at >= date('now', '-14 day')"))
+    for job in candidates + screened_out:
         job.update(filters.extract_sections(job.pop("description")))
         job["age_days"] = filters.age_days(job["posted"])
+        job["screen"] = json.loads(job["screen"]) if job["screen"] else None
+    usage_daily = rows("""SELECT substr(at, 1, 10) AS day, step, COUNT(*) AS calls, SUM(jobs) AS jobs,
+                                 SUM(input_tokens + cache_write + cache_read + output_tokens) AS tokens,
+                                 SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd, SUM(ok = 0) AS failed
+                          FROM usage WHERE at >= date('now', '-30 day') GROUP BY day, step ORDER BY day""")
     by_status = rows("SELECT status, COUNT(*) AS n FROM jobs GROUP BY status")
     by_reason = rows("""SELECT status_reason AS reason, COUNT(*) AS n FROM jobs
                         WHERE status = 'filtered_out' GROUP BY status_reason ORDER BY n DESC""")
-    by_employer = rows("""SELECT employer, COUNT(*) AS seen, SUM(status = 'candidate') AS candidates
+    by_employer = rows("""SELECT employer, COUNT(*) AS seen, SUM(status IN ('candidate', 'queued')) AS candidates
                           FROM jobs GROUP BY employer ORDER BY candidates DESC, seen DESC""")
     last_run = rows("SELECT started, finished, summary FROM runs WHERE step = 'scout' ORDER BY id DESC LIMIT 1")
 
@@ -60,6 +67,8 @@ def build_payload(conn):
     return {
         "generated": db.now(),
         "candidates": candidates,
+        "screened_out": screened_out,
+        "usage": usage_daily,
         "stats": {"by_status": by_status, "by_reason": by_reason, "by_employer": by_employer,
                   "last_run": last_run[0] if last_run else None},
         "watchlist": watchlist,

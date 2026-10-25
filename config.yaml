@@ -57,6 +57,16 @@ scout:
   # Drive times come from OSRM without traffic; within this many minutes of the limit is flagged "borderline".
   borderline_minutes: 5
 
+screener:
+  model: sonnet
+  batch_size: 4            # jobs per Claude call; each call has ~1.5k tokens of fixed overhead
+  max_jobs_per_run: 24     # safety cap on Claude usage per night
+  min_fit: 60              # below this a job is not queued for preparation (pilot value; tune from rejections)
+  # Ranking = fit score + these adjustments. Lab lanes first; QA is the lowest priority.
+  lane_bonus: {radiochem: 10, analytical: 6, el: 6, dev_supply: 3, qa: -8, other: -10}
+  fresh_bonus: 5           # posted within 3 days
+  near_bonus: 3            # remote or within 15 minutes
+
 schedule:
   nightly_prepare: "02:00"
   submit_runs: ["12:00", "18:00"]

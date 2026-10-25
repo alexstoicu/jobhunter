@@ -9,28 +9,28 @@
   :root {
     --bg: #f6f5f2; --surface: #ffffff; --text: #1d1f21; --muted: #62666b; --line: #e3e1dc;
     --accent: #1f6f5c; --accent-soft: #e2f0eb; --warn: #8a5a00; --warn-soft: #fbefd6;
-    --bad: #9b2c2c; --bad-soft: #f8e1e1; --chip: #efeee9;
+    --bad: #9b2c2c; --bad-soft: #f8e1e1; --chip: #efeee9; --s1: #1f6f5c; --s2: #b07d1a; --s3: #5a6fb0;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #141618; --surface: #1d2023; --text: #e7e6e3; --muted: #9a9ea3; --line: #2e3236;
       --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #e2b04a; --warn-soft: #3a3020;
-      --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31;
+      --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31; --s1: #5cc4a6; --s2: #e2b04a; --s3: #8fa3e6;
     }
   }
   :root[data-theme="dark"] {
     --bg: #141618; --surface: #1d2023; --text: #e7e6e3; --muted: #9a9ea3; --line: #2e3236;
     --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #e2b04a; --warn-soft: #3a3020;
-    --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31;
+    --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31; --s1: #5cc4a6; --s2: #e2b04a; --s3: #8fa3e6;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
   h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
-  h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); font-weight: 600;
-       text-transform: uppercase; letter-spacing: 0.05em; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 13px; margin: 28px 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .lock { max-width: 360px; margin: 18vh auto 0; background: var(--surface); border: 1px solid var(--line);
           border-radius: 12px; padding: 24px; }
   .lock input[type=password] { width: 100%; padding: 11px 12px; font-size: 16px; border-radius: 8px;
@@ -49,27 +49,50 @@
   .tabs button[aria-selected=true] { background: var(--text); color: var(--bg); border-color: var(--text); }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
           margin: 10px 0; }
+  .card.queued { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card .head { display: flex; gap: 12px; align-items: flex-start; }
+  .card .head > div { flex: 1; min-width: 0; }
+  .score { flex: none; width: 46px; height: 46px; border-radius: 10px; display: grid; place-items: center;
+           font-weight: 700; font-size: 18px; background: var(--chip); font-variant-numeric: tabular-nums; }
+  .score.hi { background: var(--accent-soft); color: var(--accent); }
+  .score.mid { background: var(--warn-soft); color: var(--warn); }
   .card h3 { margin: 0; font-size: 16px; line-height: 1.35; }
   .card h3 a { color: inherit; text-decoration: none; }
   .card h3 a:hover { text-decoration: underline; }
   .emp { color: var(--muted); font-size: 14px; margin: 2px 0 8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; white-space: nowrap; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
   .chip.good { background: var(--accent-soft); color: var(--accent); }
   .chip.warn { background: var(--warn-soft); color: var(--warn); }
-  details { margin-top: 10px; }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); }
+  .summary { margin: 10px 0 0; font-size: 14.5px; }
+  .why { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); }
+  .lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 18px; margin-top: 8px; font-size: 13.5px; }
+  .lists ul { margin: 2px 0 0; padding-left: 18px; }
+  .lists b { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .pay { margin-top: 10px; font-size: 13.5px; }
+  .pay small { color: var(--muted); }
+  details { margin-top: 8px; }
   summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .snippet { white-space: pre-wrap; font-size: 13.5px; color: var(--muted); margin-top: 6px; }
   .bars { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; }
-  .bar { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 4px 10px; padding: 7px 0;
+  .bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 7px 0;
          border-bottom: 1px solid var(--line); font-size: 14px; }
   .bar:last-child { border-bottom: 0; }
   .bar i { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--accent); opacity: .75; }
   .bar em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .stack { grid-column: 1 / -1; display: flex; height: 8px; border-radius: 3px; overflow: hidden; background: var(--chip); }
+  .stack span { display: block; height: 100%; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin: 6px 0; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+                         margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  .est { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .est input[type=range] { width: 100%; accent-color: var(--accent); }
+  .est .out { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .wl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 0;
         border-bottom: 1px solid var(--line); font-size: 14px; }
   .wl small { grid-column: 1 / -1; color: var(--muted); }
-  .empty { color: var(--muted); padding: 20px 0; }
+  .empty { color: var(--muted); padding: 12px 0; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .hidden { display: none; }
 </style>
@@ -97,12 +120,14 @@
     </div>
     <div class="tiles" id="tiles"></div>
     <div class="tabs" role="tablist">
-      <button role="tab" data-tab="candidates" aria-selected="true">Candidates</button>
+      <button role="tab" data-tab="candidates" aria-selected="true">Jobs</button>
       <button role="tab" data-tab="stats" aria-selected="false">Stats</button>
+      <button role="tab" data-tab="usage" aria-selected="false">Usage</button>
       <button role="tab" data-tab="watchlist" aria-selected="false">Watchlist</button>
     </div>
     <div id="tab-candidates"></div>
     <div id="tab-stats" class="hidden"></div>
+    <div id="tab-usage" class="hidden"></div>
     <div id="tab-watchlist" class="hidden"></div>
   </section>
 </main>
@@ -113,7 +138,11 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const money = (n) => "$" + Math.round(n / 1000) + "k";
-const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP" };
+const num = (n) => Math.round(n || 0).toLocaleString();
+const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP", dev_supply: "Dev supply", other: "Other" };
+const ROLES = { lab: "Lab", qa: "QA", validation: "Validation", management: "Management", development_supply: "Development supply", other: "Other" };
+const STEPS = [["screen", "Screening", "--s1"], ["tailor", "Tailoring", "--s2"], ["verify", "Verifying", "--s3"]];
+let usageModel = null;
 
 function store(get, value) {
   try { return get ? localStorage.getItem(STORE_KEY) : (value ? localStorage.setItem(STORE_KEY, value) : localStorage.removeItem(STORE_KEY)); }
@@ -139,25 +168,50 @@ async function unlock(password, remember) {
   $("app").classList.remove("hidden");
 }
 
+function list(title, items) {
+  return items && items.length ? `<div><b>${title}</b><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+}
+
 function card(j) {
+  const s = j.screen;
   const chips = [];
-  for (const l of (j.lanes || "").split(",").filter(Boolean)) chips.push(`<span class="chip good">${esc(LANES[l] || l)}</span>`);
+  if (s) {
+    chips.push(`<span class="chip good">${esc(LANES[s.lane] || s.lane)}</span>`);
+    chips.push(`<span class="chip">${esc(ROLES[s.role_type] || s.role_type)} · ${esc(s.seniority)}${s.manages_people ? " · manages people" : ""}</span>`);
+    if (s.phd_listed) chips.push(`<span class="chip">PhD listed</span>`);
+    if (s.travel_pct) chips.push(`<span class="chip${s.travel_pct > 25 ? " warn" : ""}">Travel ${s.travel_pct}%</span>`);
+  } else {
+    for (const l of (j.lanes || "").split(",").filter(Boolean)) chips.push(`<span class="chip good">${esc(LANES[l] || l)}</span>`);
+  }
   if (j.work_mode === "remote") chips.push(`<span class="chip good">Remote</span>`);
   else {
     const borderline = j.drive_min > 25;
-    chips.push(`<span class="chip${borderline ? " warn" : ""}">${esc(j.work_mode === "hybrid" ? "Hybrid" : "On-site")} · ${esc(j.city)} · ${Math.round(j.drive_min)} min · ${Math.round(j.drive_miles)} mi${borderline ? " (borderline in traffic)" : ""}</span>`);
+    chips.push(`<span class="chip${borderline ? " warn" : ""}">${j.work_mode === "hybrid" ? "Hybrid" : "On-site"} · ${esc(j.city)} · ${Math.round(j.drive_min)} min · ${Math.round(j.drive_miles)} mi${borderline ? " (borderline in traffic)" : ""}</span>`);
   }
-  chips.push(j.salary_max
-    ? `<span class="chip">Posted ${money(j.salary_min)}–${money(j.salary_max)}</span>`
-    : `<span class="chip warn">Salary not posted · estimate coming in Stage 2</span>`);
   if (j.age_days != null) chips.push(`<span class="chip">Posted ${j.age_days === 0 ? "today" : j.age_days + " d ago"}</span>`);
-  const section = (label, text, open) => text
-    ? `<details${open ? " open" : ""}><summary>${label}</summary><div class="snippet">${esc(text)}</div></details>` : "";
-  return `<article class="card">
-    <h3><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
-    <div class="emp">${esc(j.employer)}</div>
+  for (const f of (s && s.red_flags) || []) chips.push(`<span class="chip bad">${esc(f)}</span>`);
+
+  let pay;
+  if (s && s.salary) {
+    const p = s.salary;
+    pay = p.source === "posted"
+      ? `<b>Posted ${money(p.min)}–${money(p.max)}</b> · enter <b>${money(s.apply_figure)}</b>`
+      : `<b>Estimated ${money(p.min)}–${money(p.max)}</b> (${esc(p.confidence)} confidence) · enter <b>${money(s.apply_figure)}</b><br><small>${esc(p.basis)}</small>`;
+  } else {
+    pay = j.salary_max ? `<b>Posted ${money(j.salary_min)}–${money(j.salary_max)}</b>` : `<small>Salary not posted · estimate after screening</small>`;
+  }
+  const score = s ? `<div class="score ${s.fit_score >= 75 ? "hi" : s.fit_score >= 60 ? "mid" : ""}" title="Fit score">${s.fit_score}</div>` : "";
+  const section = (label, text) => text ? `<details><summary>${label}</summary><div class="snippet">${esc(text)}</div></details>` : "";
+  return `<article class="card${j.status === "queued" ? " queued" : ""}">
+    <div class="head">${score}<div>
+      <h3><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
+      <div class="emp">${esc(j.employer)}${j.status === "screened_out" ? ` · <span style="color:var(--bad)">dropped: ${esc(j.status_reason)}</span>` : ""}</div>
+    </div></div>
     <div class="chips">${chips.join("")}</div>
-    ${section("Duties", j.duties, false)}${section("Requirements", j.requirements, false)}
+    ${s ? `<p class="summary">${esc(s.summary)}</p><p class="why">${esc(s.why)}</p>` : ""}
+    ${s ? `<div class="lists">${list("Matches", s.matched)}${list("Gaps", s.gaps)}</div>` : ""}
+    <div class="pay">${pay}</div>
+    ${section("Duties", j.duties)}${section("Requirements", j.requirements)}
   </article>`;
 }
 
@@ -168,23 +222,85 @@ function bars(rows, label, value) {
     <i style="width:${Math.max(2, (100 * (r[value] || 0)) / max)}%"></i></div>`).join("")}</div>`;
 }
 
+function renderUsage(usage) {
+  if (!usage.length) return `<p class="empty">No Claude calls logged yet. Usage appears after the first screening run.</p>`;
+  const days = {};
+  for (const r of usage) (days[r.day] ??= {})[r.step] = r;
+  const dayList = Object.keys(days).sort();
+  const total = (step, key) => usage.filter((r) => !step || r.step === step).reduce((a, r) => a + (r[key] || 0), 0);
+  const perJob = (step) => total(step, "jobs") ? total(step, "tokens") / total(step, "jobs") : 0;
+  const screenPerDay = total("screen", "tokens") / Math.max(1, dayList.length);
+  const prepPerApp = perJob("tailor") + perJob("verify");
+  const costPerTok = total(null, "cost_usd") / Math.max(1, total(null, "tokens"));
+  usageModel = { screenPerDay, prepPerApp, costPerTok };
+  const maxDay = Math.max(...dayList.map((d) => STEPS.reduce((a, [k]) => a + ((days[d][k] || {}).tokens || 0), 0)), 1);
+
+  const rows = dayList.slice(-14).reverse().map((d) => {
+    const sum = STEPS.reduce((a, [k]) => a + ((days[d][k] || {}).tokens || 0), 0);
+    const cost = STEPS.reduce((a, [k]) => a + ((days[d][k] || {}).cost_usd || 0), 0);
+    const segs = STEPS.map(([k, , c]) => `<span style="width:${100 * ((days[d][k] || {}).tokens || 0) / maxDay}%;background:var(${c})"></span>`).join("");
+    return `<div class="bar"><span>${d}</span><em>${num(sum)} tok · $${cost.toFixed(2)}</em><div class="stack">${segs}</div></div>`;
+  }).join("");
+
+  return `<div class="tiles">
+      <div class="tile"><b>${num(perJob("screen"))}</b><span>tokens per screened job</span></div>
+      <div class="tile"><b>${prepPerApp ? num(prepPerApp) : "—"}</b><span>tokens per prepared application</span></div>
+      <div class="tile"><b>$${total(null, "cost_usd").toFixed(2)}</b><span>API-equivalent, 30 days</span></div>
+      <div class="tile"><b>${total(null, "calls")}</b><span>Claude calls, 30 days${total(null, "failed") ? ` · ${total(null, "failed")} failed` : ""}</span></div>
+    </div>
+    <h2>Tokens per day</h2>
+    <div class="legend">${STEPS.map(([, n, c]) => `<span style="--c:var(${c})">${n}</span>`).join("")}</div>
+    <div class="bars">${rows}</div>
+    <h2>Estimator</h2>
+    <div class="est">
+      <label for="n">Applications prepared per day: <b id="nval">3</b></label>
+      <input id="n" type="range" min="1" max="10" value="3">
+      <div class="out" id="estout"></div>
+      <p class="sub" style="margin:6px 0 0">Daily screening (${num(screenPerDay)} tokens/day so far) plus tailoring and verifying for each application${prepPerApp ? "" : " (measured once Stage 3 runs; until then only screening counts)"}.
+      The API-equivalent dollar figure is what the same calls would cost on the API; on Pro they count against the plan's usage limits instead.
+      Anthropic doesn't publish Pro limits in tokens, so the share of the plan is calibrated later from the plan's usage readings.</p>
+    </div>`;
+}
+
+function wireEstimator(u) {
+  const n = $("n"); if (!n) return;
+  const upd = () => {
+    const tokens = u.screenPerDay + n.value * u.prepPerApp;
+    $("nval").textContent = n.value;
+    $("estout").textContent = `≈ ${num(tokens)} tokens/day · ≈ $${(tokens * u.costPerTok).toFixed(2)}/day API-equivalent`;
+  };
+  n.addEventListener("input", upd); upd();
+}
+
 function render(d) {
   const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
   const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
+  const queued = d.candidates.filter((j) => j.status === "queued");
+  const others = d.candidates.filter((j) => j.status !== "queued");
   $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
   $("tiles").innerHTML = [
-    [total, "postings seen"], [count("candidate"), "passed filters"],
-    [count("filtered_out"), "filtered out"], [d.stats.by_employer.length, "employers scanned"],
+    [total, "postings seen"], [count("candidate") + count("queued") + count("screened_out"), "passed hard filters"],
+    [count("candidate") + count("queued"), "after screening"], [queued.length, "to prepare"],
   ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${t}</span></div>`).join("");
 
-  $("tab-candidates").innerHTML = d.candidates.length
-    ? `<h2>Passed the hard filters · ${d.candidates.length}</h2><p class="sub">Not yet screened or ranked. Fit scores, salary estimates and approvals arrive in Stages 2–3.</p>` + d.candidates.map(card).join("")
-    : `<p class="empty">No candidates yet.</p>`;
+  $("tab-candidates").innerHTML =
+    `<h2>To prepare · ${queued.length}</h2>` +
+    (queued.length ? `<p class="sub">Today's picks. Tailored resumes and approve/reject buttons arrive in Stage 3.</p>` + queued.map(card).join("")
+                   : `<p class="empty">Nothing queued yet.</p>`) +
+    `<h2>Other candidates · ${others.length}</h2>` +
+    (others.length ? others.map(card).join("") : `<p class="empty">None.</p>`) +
+    `<h2>Dropped by the Screener · last 14 days · ${d.screened_out.length}</h2>` +
+    (d.screened_out.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${d.screened_out.map(card).join("")}</details>`
+                           : `<p class="empty">None.</p>`);
 
   $("tab-stats").innerHTML =
     `<h2>Why postings were filtered out</h2>` + bars(d.stats.by_reason.slice(0, 15), "reason", "n") +
     `<h2>Candidates by employer</h2>` + bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates") +
     `<h2>Postings seen by employer</h2>` + bars(d.stats.by_employer, "employer", "seen");
+
+  usageModel = null;
+  $("tab-usage").innerHTML = renderUsage(d.usage || []);
+  if (usageModel) wireEstimator(usageModel);
 
   $("tab-watchlist").innerHTML = `<h2>Watchlist · ${d.watchlist.length} employers</h2>
     <p class="sub">"pending" = feed not supported yet. To cross a name out, tell Claude; it's never re-added.</p>

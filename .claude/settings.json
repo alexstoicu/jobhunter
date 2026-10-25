@@ -5,7 +5,12 @@
       "Bash(claude --version)",
       "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python -c ' *)",
       "Bash(.venv/Scripts/python -u -m jobhunter.scout)",
-      "Bash(git commit -q -m 'Tighten filters: 30-day age limit, lab focus, level and shift rules; show duties on cards *)"
+      "Bash(git commit -q -m 'Tighten filters: 30-day age limit, lab focus, level and shift rules; show duties on cards *)",
+      "PowerShell(powercfg /q SCHEME_CURRENT SUB_SLEEP RTCWAKE | Select-String \"Current AC|Current DC|Allow wake\"; \\(Get-ScheduledTask -TaskName \"JobHunter Nightly\"\\).Settings.WakeToRun)",
+      "Bash(curl -s -X POST -H \"Content-Type: application/json\" https://api.bls.gov/publicAPI/v1/timeseries/data/ -d '{\"seriesid\":[\"OEUM002050000000019203113\",\"OEUM003958000000019203113\",\"OEUM002050000000019203104\"]}')",
+      "Bash(.venv/Scripts/python -m jobhunter.wages)",
+      "Bash(.venv/Scripts/python -m jobhunter.screen --limit 3)",
+      "Bash(git commit -q -m 'Stage 2: Screener, BLS wages, ranking, usage logging, nightly run *)"
     ]
   }
 }

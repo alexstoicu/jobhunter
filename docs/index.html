@@ -94,7 +94,7 @@
   .wl small { grid-column: 1 / -1; color: var(--muted); }
   .empty { color: var(--muted); padding: 12px 0; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }  /* must beat later display rules, e.g. .reasons */
   .i { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; margin-left: 6px;
        border-radius: 50%; font: italic 600 11px/1 Georgia, serif; color: var(--muted); vertical-align: 1px;
        border: 1px solid var(--muted); background: transparent; text-transform: none; letter-spacing: 0; }

@@ -49,9 +49,11 @@ def build_payload(conn):
     rows = lambda sql, *a: [dict(r) for r in conn.execute(sql, a)]
     card_sql = """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles, salary_min,
                          salary_max, lanes, posted, first_seen, description, status, status_reason, fit_score,
-                         rank_score, screen, queued_on, resume, resume_dir, decided_at
+                         rank_score, screen, queued_on, resume, resume_dir, decided_at, submission, submitted_at
                   FROM jobs WHERE {} ORDER BY rank_score DESC NULLS LAST, posted DESC"""
-    candidates = rows(card_sql.format("status IN ('candidate', 'queued', 'prepared', 'approved')"))
+    candidates = rows(card_sql.format(
+        "status IN ('candidate', 'queued', 'prepared', 'approved', 'ready', 'submit_confirmed', 'needs_you') "
+        "OR (status = 'submitted' AND submitted_at >= date('now', '-30 day'))"))
     screened_out = rows(card_sql.format("status = 'screened_out' AND screened_at >= date('now', '-14 day')"))
     rejected = rows(card_sql.format("status = 'rejected' AND decided_at >= date('now', '-14 day')"))
     for job in candidates + screened_out + rejected:
@@ -65,6 +67,13 @@ def build_payload(conn):
             job["resume"] = {"text": plan["text"], "verification": plan["verification"],
                              "pdf": base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else None,
                              "file": plan["file"]}
+        record = job.pop("submission")
+        if record:
+            rec = json.loads(record)
+            shots = [Path(s) for s in rec.get("screens", []) if Path(s).exists()]
+            job["submission"] = {"answers": rec.get("answers", []), "needs_you": rec.get("needs_you", []),
+                                 "account": rec.get("account"),
+                                 "shot": base64.b64encode(shots[-1].read_bytes()).decode() if shots else None}
     usage_daily = rows("""SELECT substr(at, 1, 10) AS day, step, COUNT(*) AS calls, SUM(jobs) AS jobs,
                                  SUM(input_tokens + cache_write + cache_read + output_tokens) AS tokens,
                                  SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd, SUM(ok = 0) AS failed

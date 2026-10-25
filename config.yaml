@@ -72,6 +72,13 @@ tailor:
   verify_model: sonnet
   max_bullets_per_role: 6
 
+submitter:
+  # Pilot: stop at the Review page and wait for Alex's "Submit" tap on the dashboard.
+  # Set to true once the filled forms have proven right; then an approved application is
+  # submitted directly whenever every answer came from the answer bank.
+  auto_submit: false
+  headed: true             # a visible browser is less likely to be blocked than a headless one
+
 schedule:
   nightly_prepare: "02:00"
   submit_runs: ["12:00", "18:00"]

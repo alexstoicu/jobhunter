@@ -89,7 +89,9 @@ MIGRATIONS = [
     ("jobs", "resume", "TEXT"),            # Tailor plan after verification, JSON
     ("jobs", "resume_dir", "TEXT"),        # folder under private/applications with the .docx and .pdf
     ("jobs", "prepared_at", "TEXT"),
-    ("jobs", "decided_at", "TEXT"),        # Alex's approve/reject on the dashboard
+    ("jobs", "decided_at", "TEXT"),        # time of the last dashboard decision applied (approve/reject/submit/answers)
+    ("jobs", "submission", "TEXT"),        # Submitter record, JSON: answers given, questions for Alex, screenshots
+    ("jobs", "submitted_at", "TEXT"),
 ]
 
 

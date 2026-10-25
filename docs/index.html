@@ -197,6 +197,9 @@ const INFO = {
   "Approved": "Applications you approved. The Submitter (Stage 4) fills and submits the employer's form; until then they wait here.",
   "To prepare": "Today's top picks (fit 60+), up to 3 a day. The Tailor builds their resumes on the next nightly run.",
   "Rejected by you": "Applications you rejected, with your reason, for the last 14 days.",
+  "Needs you": "The Submitter stopped: a question your answer bank doesn't cover, an account or email-verification step, a CAPTCHA, or a site it can't fill yet. Answer here and it retries; your answers are saved for next time.",
+  "Ready to submit": "The employer's form is filled in up to its Review page. Check the answers and screenshot, then tap Submit. (Pilot setting: once the forms prove right, approved applications can be submitted without this second tap.)",
+  "Submitted": "Applications sent in the last 30 days, with the answers entered and the confirmation screenshot.",
   "Other candidates": "Screened jobs that weren't picked today, usually because the fit score is below 60. They stay here until they expire (30 days after posting) or the employer removes them.",
   "Dropped by the Screener": "Jobs the AI Screener rejected after reading the full posting (not lab work, pay below $75k, shift work, wrong level and so on). Shown for 14 days so you can catch misreads.",
   "Why postings were filtered out": "The free code filters that ran before any AI step, with how many postings each one removed. Tap a reason for what it means.",
@@ -304,11 +307,11 @@ async function loadDecisions() {
   decisions = blob ? await decrypt(blob, PW) : {};
 }
 
-async function saveDecision(id, decision, reason) {
+async function saveDecision(id, decision, reason, given = null) {
   if (!lsGet(TOKEN_KEY)) { openSettings("Add a GitHub token first (one time per device)."); return; }
   const file = await gh("GET");
   const current = file ? await decrypt(JSON.parse(b64utf8(file.content)), PW) : {};
-  current[id] = { decision, reason, at: new Date().toISOString() };
+  current[id] = { decision, reason, at: new Date().toISOString(), ...(given ? { answers: given } : {}) };
   const content = utf8b64(JSON.stringify(await encrypt(current, PW)));
   await gh("PUT", { message: `Decision on job ${id}`, content, ...(file ? { sha: file.sha } : {}) });
   decisions = current;
@@ -394,12 +397,17 @@ function resumeBlock(j) {
   const v = j.resume.verification, removed = Object.keys(v.rejected || {}).length;
   const check = `Every line cites your claim bank and passed an AI fact-check` +
     (removed ? `; ${removed} line${removed > 1 ? "s" : ""} that overstated a claim ${removed > 1 ? "were" : "was"} removed.` : ".");
-  const d = decisions[j.id];
+  const d = pending(j);
   let actions;
   if (d) {
-    actions = d.decision === "approve"
-      ? `<div class="decided ok">Approved ${new Date(d.at).toLocaleDateString()} · submission arrives in Stage 4</div>`
-      : `<div class="decided no">Rejected${d.reason ? ` (${esc(d.reason)})` : ""}</div>`;
+    actions = {
+      approve: `<div class="decided ok">Approved · the Submitter fills the form on its next run</div>`,
+      reject: `<div class="decided no">Rejected${d.reason ? ` (${esc(d.reason)})` : ""}</div>`,
+      submit: `<div class="decided ok">Submit confirmed · it goes out on the next run</div>`,
+      answers: `<div class="decided ok">Answers saved · the Submitter retries on its next run</div>`,
+    }[d.decision];
+  } else if (j.status !== "prepared") {
+    actions = submissionBlock(j);
   } else if (j.status === "prepared") {
     actions = `<div class="actions">
         <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>
@@ -408,11 +416,54 @@ function resumeBlock(j) {
       </div>
       <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
         `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
-  } else {
-    actions = j.resume.pdf ? `<div class="actions"><button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button></div>` : "";
   }
   return `<details><summary>Tailored resume</summary><p class="sub" style="margin:6px 0">${esc(check)}</p>
     <div class="snippet">${esc(j.resume.text)}</div></details>${actions}`;
+}
+
+// The decision Alex made on this device or another that the PC hasn't applied yet.
+const PRE_STATE = { approve: "prepared", reject: "prepared", submit: "ready", answers: "needs_you" };
+function pending(j) {
+  const d = decisions[j.id];
+  return d && PRE_STATE[d.decision] === j.status ? d : null;
+}
+
+function submissionBlock(j) {
+  const s = j.submission || {};
+  const pdf = j.resume && j.resume.pdf ? `<button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button>` : "";
+  const shot = s.shot ? `<details><summary>Screenshot</summary><img alt="Form screenshot" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px" src="data:image/jpeg;base64,${s.shot}"></details>` : "";
+  const given = (s.answers || []).length ? `<details><summary>Answers entered (${s.answers.length})</summary><div class="snippet">${
+    s.answers.map((a) => `${esc(a.question)}\n  → ${esc(a.answer)}  [${esc(a.source)}]`).join("\n")}</div></details>` : "";
+  if (j.status === "approved" || j.status === "submit_confirmed")
+    return `<div class="decided ok">${j.status === "approved" ? "Approved" : "Submit confirmed"} · the Submitter runs at 12:00, 18:00 and 02:00</div><div class="actions">${pdf}</div>`;
+  if (j.status === "submitted")
+    return `<div class="decided ok">Submitted ${new Date(j.submitted_at).toLocaleString()}</div>${given}${shot}`;
+  if (j.status === "ready")
+    return `<div class="decided ok">Form filled up to the Review page. Check the answers, then submit.</div>${given}${shot}
+      <div class="actions"><button type="button" class="approve" data-act="submit" data-id="${j.id}">Submit application</button>
+      <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>${pdf}</div>
+      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
+        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+  if (j.status === "needs_you") {
+    const items = (s.needs_you || []).map((n, i) => {
+      if (n.question && !n.problem) {
+        const input = n.options && n.options.length
+          ? `<select data-q="${esc(n.question)}"><option value="">Choose…</option>${n.options.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`
+          : `<input data-q="${esc(n.question)}" type="text" placeholder="Your answer">`;
+        return `<div style="margin-top:10px"><b>${esc(n.question)}</b><br>${input}</div>`;
+      }
+      return `<div style="margin-top:10px"><b>${esc(n.step || "")}</b>: ${esc(n.problem || "")}${n.details ? `<div class="snippet">${esc([].concat(n.details).join("\n"))}</div>` : ""}</div>`;
+    }).join("");
+    const askable = (s.needs_you || []).some((n) => n.question && !n.problem);
+    return `<div class="decided no">The Submitter stopped and needs you.</div><div class="settings">${items}
+      <p class="sub" style="margin-top:8px">Answers you give are saved to your answer bank, so the same question never comes back.</p></div>${given}${shot}
+      <div class="actions">${askable ? `<button type="button" class="approve" data-act="answers" data-id="${j.id}">Save answers and retry</button>` : ""}
+      <a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer"><button type="button">Open job page</button></a>
+      <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>${pdf}</div>
+      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
+        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+  }
+  return pdf ? `<div class="actions">${pdf}</div>` : "";
 }
 
 document.addEventListener("click", async (e) => {
@@ -422,6 +473,13 @@ document.addEventListener("click", async (e) => {
   try {
     if (b.dataset.act === "pdf") openPdf(id);
     else if (b.dataset.act === "approve") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "approve", null); }
+    else if (b.dataset.act === "submit") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "submit", null); }
+    else if (b.dataset.act === "answers") {
+      const card = b.closest(".card"), given = {};
+      card.querySelectorAll("[data-q]").forEach((el) => { if (el.value.trim()) given[el.dataset.q] = el.value.trim(); });
+      if (!Object.keys(given).length) { alert("Answer at least one question first."); return; }
+      b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "answers", null, given);
+    }
     else if (b.dataset.act === "reject") $("reasons-" + id).classList.toggle("hidden");
     else if (b.dataset.act === "reason") {
       let reason = b.dataset.reason;
@@ -495,9 +553,14 @@ function wireEstimator(u) {
 function render(d) {
   const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
   const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
-  const toApprove = d.candidates.filter((j) => j.status === "prepared" && !decisions[j.id]);
-  const approved = d.candidates.filter((j) => j.status === "approved" || (j.status === "prepared" && decisions[j.id]?.decision === "approve"));
-  const rejected = d.rejected.concat(d.candidates.filter((j) => j.status === "prepared" && decisions[j.id]?.decision === "reject"));
+  const is = (j, ...s) => s.includes(j.status) && !pending(j);
+  const pendingReject = (j) => pending(j)?.decision === "reject";
+  const toApprove = d.candidates.filter((j) => is(j, "prepared"));
+  const needsYou = d.candidates.filter((j) => is(j, "needs_you"));
+  const ready = d.candidates.filter((j) => is(j, "ready"));
+  const approved = d.candidates.filter((j) => (is(j, "approved", "submit_confirmed") || (pending(j) && !pendingReject(j))));
+  const submitted = d.candidates.filter((j) => j.status === "submitted");
+  const rejected = d.rejected.concat(d.candidates.filter(pendingReject));
   const queued = d.candidates.filter((j) => j.status === "queued");
   const others = d.candidates.filter((j) => j.status === "candidate");
   $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
@@ -508,9 +571,12 @@ function render(d) {
 
   $("tab-candidates").innerHTML =
     (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
+    (needsYou.length ? h2("Needs you", ` · ${needsYou.length}`) + needsYou.map(card).join("") : "") +
+    (ready.length ? h2("Ready to submit", ` · ${ready.length}`) + ready.map(card).join("") : "") +
     h2("To approve", ` · ${toApprove.length}`) +
     (toApprove.length ? toApprove.map(card).join("") : `<p class="empty">Nothing waiting for you.</p>`) +
     (approved.length ? h2("Approved", ` · ${approved.length}`) + approved.map(card).join("") : "") +
+    (submitted.length ? h2("Submitted", ` · last 30 days · ${submitted.length}`) + `<details><summary>Show</summary>${submitted.map(card).join("")}</details>` : "") +
     h2("To prepare", ` · ${queued.length}`) +
     (queued.length ? queued.map(card).join("") : `<p class="empty">Nothing queued.</p>`) +
     h2("Other candidates", ` · ${others.length}`) +

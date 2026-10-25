@@ -16,14 +16,15 @@ from jobhunter import answers, vault
 NEXT_NAME = re.compile(r"^\s*(Save and Continue|Next|Continue|Submit)\s*$", re.I)
 
 # Fields answered by code, by data-automation-id fragment -> answer bank path.
-KNOWN = {
-    "legalNameSection_firstName": "contact.first_name",
-    "legalNameSection_lastName": "contact.last_name",
-    "addressSection_addressLine1": "contact.address_line_1",
-    "addressSection_city": "contact.city",
-    "addressSection_postalCode": "contact.postal_code",
-    "phone-number": "contact.phone_digits",
-    "email": "contact.email",
+KNOWN = {  # container ids as seen on Biogen's Workday (formField-<id>)
+    "formField-legalName--firstName": "contact.first_name",
+    "formField-legalName--lastName": "contact.last_name",
+    "formField-preferredName--firstName": "contact.preferred_name",
+    "formField-preferredName--lastName": "contact.last_name",
+    "formField-addressLine1": "contact.address_line_1",
+    "formField-city": "contact.city",
+    "formField-postalCode": "contact.postal_code",
+    "formField-phoneNumber": "contact.phone",
 }
 
 # Runs in the page: describe every visible form field and tag it with data-jh-key.
@@ -91,11 +92,10 @@ class WorkdayApplication:
         self.pdf_path, self.out_dir, self.submit, self.log = pdf_path, out_dir, submit, log
         self.host = urlparse(job["url"]).netloc
         self.bank = answers.load_bank()
-        digits = re.sub(r"\D", "", _get(self.bank, "contact.phone") or "")
-        self.bank["contact"]["phone_digits"] = {"answer": digits[-10:]}
         screen = json.loads(job["screen"] or "{}")
         self.salary = screen.get("apply_figure")
-        self.record = {"steps": [], "answers": [], "needs_you": [], "screens": [], "account": None}
+        self.record = {"steps": [], "answers": [], "needs_you": [], "skipped": [], "screens": [], "account": None}
+        self.reloads = 0
 
     # --- helpers ---------------------------------------------------------------------
 
@@ -117,8 +117,13 @@ class WorkdayApplication:
         self.page.wait_for_timeout(ms)
 
     def wait_for_form(self, timeout=45):
-        """Wait until the step's fields have rendered and the loading spinner is gone."""
+        """Wait until the step's fields have rendered and the loading spinner is gone.
+
+        Workday sometimes shows "Something went wrong" when re-entering a saved draft; a reload fixes it.
+        """
         for _ in range(timeout * 2):
+            if self.recover():
+                continue
             ready = self.page.evaluate("""() => {
                 const vis = (e) => !!(e.offsetParent || e.getClientRects().length);
                 const busy = Array.from(document.querySelectorAll('[data-automation-id="loadingSpinner"], [data-automation-id*="Loading"], [aria-busy="true"]')).some(vis);
@@ -130,7 +135,20 @@ class WorkdayApplication:
                 self.page.wait_for_timeout(800)
                 return
             self.page.wait_for_timeout(500)
+        self.shot("not_loading")
         raise Escalation(f"the {self.step_name() or 'form'} page didn't finish loading")
+
+    def recover(self):
+        """Reload when Workday shows its "Something went wrong" page (common on saved drafts)."""
+        if not self.page.get_by_text("Something went wrong").count():
+            return False
+        if self.reloads >= 4:
+            raise Escalation("Workday keeps showing 'Something went wrong'")
+        self.reloads += 1
+        self.log("Workday error page; reloading")
+        self.page.reload(wait_until="networkidle")
+        self.page.wait_for_timeout(4000)
+        return True
 
     def next_button(self):
         return self.page.get_by_role("button", name=NEXT_NAME).last
@@ -160,13 +178,15 @@ class WorkdayApplication:
             self.settle()
         self.sign_in()
 
-        for _ in range(12):  # pages in the flow, with headroom
+        for _ in range(16):  # pages in the flow, with headroom for reloads
             self.wait_for_form()
             step = self.step_name()
             self.log(f"step: {step}")
             if step.lower().startswith("review"):
                 return self.review()
             self.fill_page(step)
+            if self.recover():
+                continue  # the page broke while filling; start this step again
             self.shot(re.sub(r"\W+", "_", step) or "page")
             self.click(self.next_button())
             self.settle()
@@ -226,15 +246,29 @@ class WorkdayApplication:
             raise Escalation("account step needs attention")
 
     def fill_page(self, step):
-        page = self.page
+        """Fill the page; then fill again for questions that appeared because of earlier answers."""
         if "experience" in step.lower():
             self.upload_resume()
-        fields = page.evaluate(EXTRACT_JS)
+        seen = set()
+        for _ in range(3):
+            labels = self.fill_fields(step, seen)
+            if not labels:
+                break
+            seen |= labels
+            self.page.wait_for_timeout(800)
+
+    def fill_fields(self, step, seen):
+        """One pass over the visible fields not handled yet. Returns the fields handled (id, label)."""
+        page = self.page
+        fields = [f for f in page.evaluate(EXTRACT_JS) if (f["id"], f["label"]) not in seen]
+        handled = {(f["id"], f["label"]) for f in fields}
+        self.record.setdefault("fields", []).extend(
+            {"step": step, "id": f["id"], "label": f["label"][:60], "kind": f["kind"], "value": f["value"][:40]} for f in fields)
         todo = []
         for f in fields:
             if f["kind"] == "file":
                 continue
-            known = next((path for frag, path in KNOWN.items() if frag in f["id"] or frag in f["inner"]), None)
+            known = KNOWN.get(f["id"])
             if known and f["kind"] == "text":
                 self.set_text(f, _get(self.bank, known), source=known)
             elif f["value"] and f["kind"] not in ("checkbox",) and f["value"].lower() not in ("select one", ""):
@@ -244,15 +278,14 @@ class WorkdayApplication:
                     f["options"] = self.select_options(f)
                 todo.append(f)
         if not todo:
-            return
+            return handled
         questions = [{k: f[k] for k in ("key", "label", "kind", "options", "required")} for f in todo]
         mapped = answers.answer(self.conn, questions, self.job, self.salary)
         for f in todo:
             reply, source = mapped.get(f["key"], (None, "none"))
             if reply is None:
-                if f["required"]:
-                    self.record["needs_you"].append({"step": step, "question": f["label"],
-                                                     "kind": f["kind"], "options": f["options"]})
+                entry = {"step": step, "question": f["label"], "kind": f["kind"], "options": f["options"]}
+                self.record["needs_you" if f["required"] else "skipped"].append(entry)
                 continue
             try:
                 self.fill(f, reply)
@@ -262,12 +295,19 @@ class WorkdayApplication:
         if self.record["needs_you"]:
             self.shot("needs_you")
             raise Escalation(f"{len(self.record['needs_you'])} question(s) need Alex on {step}")
+        return handled
 
     def upload_resume(self):
-        inp = self.page.locator("input[type='file']")
-        if inp.count():
+        page, name = self.page, self.pdf_path.name
+        attached = page.get_by_text(name, exact=True)
+        # Re-runs on a saved draft must not attach the resume again; remove duplicates left earlier.
+        while attached.count() > 1:
+            page.locator("[data-automation-id='delete-file']").last.click(force=True)
+            page.wait_for_timeout(1500)
+        inp = page.locator("input[type='file']")
+        if inp.count() and not attached.count():
             inp.first.set_input_files(str(self.pdf_path))
-            self.page.wait_for_timeout(4000)
+            page.wait_for_timeout(4000)
             self.record["answers"].append({"step": "My Experience", "question": "Resume", "answer": self.pdf_path.name,
                                            "source": "tailored resume"})
 
@@ -315,7 +355,10 @@ class WorkdayApplication:
             box.get_by_text(reply, exact=True).first.click()
         elif kind == "checkbox":
             cb = box.locator("input[type='checkbox']").first
-            cb.check(force=True) if reply == "checked" else cb.uncheck(force=True)
+            want = reply.lower().startswith(("checked", "yes", "i agree", "true"))
+            if cb.is_checked() != want:  # click only to change state; Workday checkboxes toggle on any click
+                cb.click(force=True)
+                page.wait_for_timeout(400)
         elif kind == "checkboxes":
             for part in [p.strip() for p in reply.split(";")]:
                 box.get_by_text(part, exact=True).first.click()

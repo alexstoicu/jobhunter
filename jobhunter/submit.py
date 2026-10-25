@@ -46,7 +46,7 @@ def save(conn, job, status, record, reason=None):
     conn.commit()
 
 
-def process(conn, job, config, playwright, review_only):
+def process(conn, job, config, playwright, review_only, force_submit=False):
     cfg = config["submitter"]
     ats = ats_of(job["url"])
     if ats != "workday":
@@ -59,7 +59,7 @@ def process(conn, job, config, playwright, review_only):
     pdf = Path(job["resume_dir"]) / f"{plan['file']}.pdf"
     out = Path(job["resume_dir"]) / "submission"
     out.mkdir(exist_ok=True)
-    may_submit = not review_only and (job["status"] == "submit_confirmed" or cfg["auto_submit"])
+    may_submit = not review_only and (force_submit or job["status"] == "submit_confirmed" or cfg["auto_submit"])
 
     context = playwright.chromium.launch_persistent_context(
         str(PROFILE_DIR), headless=not cfg["headed"], viewport={"width": 1280, "height": 900})
@@ -90,7 +90,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--job", type=int)
     parser.add_argument("--review-only", action="store_true", help="never click Submit")
+    parser.add_argument("--submit", action="store_true",
+                        help="with --job: submit when every answer is covered (Alex's explicit go-ahead)")
     args = parser.parse_args(argv)
+    if args.submit and not args.job:
+        parser.error("--submit needs --job")
 
     from playwright.sync_api import sync_playwright
 
@@ -107,7 +111,7 @@ def main(argv=None):
             if submitted_today(conn) >= cap:
                 print(f"daily submission cap ({cap}) reached")
                 break
-            status = process(conn, job, config, p, args.review_only)
+            status = process(conn, job, config, p, args.review_only, force_submit=args.submit)
             print(f"{job['id']} {job['employer']} | {job['title']}: {status}")
     if not jobs:
         print("nothing approved")

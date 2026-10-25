@@ -4,6 +4,7 @@ Claude maps each question (label, type, options) to an answer the bank supports,
 A null on a required question means the Submitter stops and the question goes to Alex.
 """
 import json
+from datetime import date
 
 import yaml
 
@@ -37,6 +38,7 @@ For each question return the answer to enter, or null when the facts don't settl
 - Desired salary / salary expectation: use DESIRED SALARY below.
 - Never answer legal attestations, signatures or consent to terms unless a fact in "learned" covers
   that exact kind of statement.
+- Dates: answer as YYYY-MM-DD. Today is {today}.
 - source: the fact key you used (e.g. "work_authorization.requires_sponsorship_now"), or "none".
 
 FACTS (answer bank)
@@ -58,7 +60,8 @@ def answer(conn, questions, job, desired_salary, model="sonnet"):
     bank = load_bank()
     bank.pop("todo", None)
     job_ctx = f"{job['title']} at {job['employer']}. DESIRED SALARY: {desired_salary} (annual USD)."
-    system = SYSTEM.replace("{bank}", yaml.safe_dump(bank, sort_keys=False, allow_unicode=True)).replace("{job}", job_ctx)
+    system = (SYSTEM.replace("{bank}", yaml.safe_dump(bank, sort_keys=False, allow_unicode=True))
+              .replace("{job}", job_ctx).replace("{today}", date.today().isoformat()))
     prompt = "QUESTIONS\n" + json.dumps(questions, indent=1, ensure_ascii=False)
     result = claude.run(conn, "prefill", system, prompt, SCHEMA, model=model, jobs=1)
     return {a["key"]: (a["answer"], a["source"]) for a in result["answers"]}

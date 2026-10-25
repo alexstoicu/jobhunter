@@ -28,8 +28,7 @@
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
   h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
-  h2 { font-size: 13px; margin: 28px 0 10px; color: var(--muted); font-weight: 600;
-       text-transform: uppercase; letter-spacing: 0.06em; }
+  h2 { font-size: 16px; margin: 24px 0 10px; color: var(--text); font-weight: 700; }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .lock { max-width: 360px; margin: 18vh auto 0; background: var(--surface); border: 1px solid var(--line);
           border-radius: 12px; padding: 24px; }
@@ -51,7 +50,7 @@
           margin: 10px 0; }
   .card.queued { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .card .head { display: flex; gap: 12px; align-items: flex-start; }
-  .card .head > div { flex: 1; min-width: 0; }
+  .card .head > div:not(.score) { flex: 1; min-width: 0; }
   .score { flex: none; align-self: flex-start; padding: 1px 7px; border-radius: 6px; line-height: 1.4;
            font-weight: 700; font-size: 14px; background: var(--chip); font-variant-numeric: tabular-nums; }
   .score.hi { background: var(--accent-soft); color: var(--accent); }
@@ -103,6 +102,17 @@
              color: var(--text); font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; line-height: 1.45; }
   .infobox.hidden { display: none; }
   .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .sec { border-top: 1px solid var(--line); margin-top: 14px; }
+  .sec > summary.sechead { list-style: none; cursor: pointer; padding: 14px 0 8px; font-size: 17px; font-weight: 700;
+                           color: var(--text); display: flex; align-items: baseline; gap: 8px; }
+  .sec > summary.sechead::-webkit-details-marker { display: none; }
+  .sec > summary.sechead::before { content: "▸"; color: var(--muted); font-size: 14px; width: 14px; flex: none; transition: transform .15s; }
+  .sec[open] > summary.sechead::before { transform: rotate(90deg); }
+  .sec > summary.sechead .infobox { font-size: 13px; }
+  .rejected-line { padding: 10px 14px; font-size: 14px; opacity: .85; }
+  .rejected-line .emp-inline { color: var(--muted); }
+  .rejected-line .no { color: var(--bad); font-weight: 600; }
+  .rejected-line .reasons { margin-top: 6px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
   .actions button { padding: 8px 16px; }
   .approve { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
@@ -250,6 +260,8 @@ const h2 = (label, extra = "") => `<h2>${term(label, INFO[label], extra)}</h2>`;
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".i");
   if (!btn) return;
+  e.preventDefault();  // inside a section header, the (i) must not fold the section
+  e.stopPropagation();
   const box = btn.closest("[data-term]").querySelector(".infobox");
   const open = box.classList.toggle("hidden") === false;
   btn.setAttribute("aria-expanded", open);
@@ -260,28 +272,36 @@ function store(get, value) {
   catch { return null; }
 }
 
+// Deriving a key from the password is deliberately slow (600k PBKDF2 rounds), so keys are cached
+// per salt for the session, and the decisions file keeps its salt across saves (each save gets a
+// fresh IV). After the first save, saving is instant.
+const keyCache = new Map();
+async function keyFor(password, saltB64, iter) {
+  const id = `${saltB64}|${iter}`;
+  if (!keyCache.has(id)) {
+    keyCache.set(id, (async () => {
+      const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+      return crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(saltB64), iterations: iter, hash: "SHA-256" },
+        base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    })());
+  }
+  return keyCache.get(id);
+}
+
+const toB64 = (u) => btoa(String.fromCharCode(...u));
+
 async function decrypt(blob, password) {
-  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: b64(blob.salt), iterations: blob.iter, hash: "SHA-256" },
-    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const key = await keyFor(password, blob.salt, blob.iter);
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.iv) }, key, b64(blob.ct));
   return JSON.parse(new TextDecoder().decode(plain));
 }
 
-async function deriveKey(password, salt, iter) {
-  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" },
-    base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
-}
-
-async function encrypt(obj, password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-  const iter = 600000;
-  const key = await deriveKey(password, salt, iter);
+async function encrypt(obj, password, saltB64 = null, iter = 600000) {
+  saltB64 = saltB64 || toB64(crypto.getRandomValues(new Uint8Array(16)));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await keyFor(password, saltB64, iter);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj))));
-  const enc = (u) => btoa(String.fromCharCode(...u));
-  return { v: 1, iter, salt: enc(salt), iv: enc(iv), ct: enc(ct) };
+  return { v: 1, iter, salt: saltB64, iv: toB64(iv), ct: toB64(ct) };
 }
 
 const utf8b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
@@ -313,15 +333,32 @@ async function loadDecisions() {
   decisions = blob ? await decrypt(blob, PW) : {};
 }
 
-async function saveDecision(id, decision, reason, given = null) {
+// Decisions show on screen at once and are saved to GitHub in the background, one at a time
+// (each save needs the file's latest sha). A failed save puts the card back and says why.
+let saveChain = Promise.resolve();
+const justRejected = new Set();  // rejected during this visit: shown as a one-line card until the page reloads
+
+function saveDecision(id, decision, reason, given = null) {
   if (!lsGet(TOKEN_KEY)) { openSettings("Add a GitHub token first (one time per device)."); return; }
-  const file = await gh("GET");
-  const current = file ? await decrypt(JSON.parse(b64utf8(file.content)), PW) : {};
-  current[id] = { decision, reason, at: new Date().toISOString(), ...(given ? { answers: given } : {}) };
-  const content = utf8b64(JSON.stringify(await encrypt(current, PW)));
-  await gh("PUT", { message: `Decision on job ${id}`, content, ...(file ? { sha: file.sha } : {}) });
-  decisions = current;
+  const before = decisions[id];
+  const entry = { decision, reason, at: new Date().toISOString(), ...(given ? { answers: given } : {}) };
+  decisions = { ...decisions, [id]: entry };
+  if (decision === "reject") justRejected.add(id);
   render(DATA);
+  saveChain = saveChain.then(async () => {
+    const file = await gh("GET");
+    const blob = file ? JSON.parse(b64utf8(file.content)) : null;
+    const current = blob ? await decrypt(blob, PW) : {};
+    current[id] = entry;
+    const content = utf8b64(JSON.stringify(await encrypt(current, PW, blob?.salt, blob?.iter)));
+    await gh("PUT", { message: `Decision on job ${id}`, content, ...(file ? { sha: file.sha } : {}) });
+  }).catch((err) => {
+    decisions = { ...decisions };
+    if (before) decisions[id] = before; else delete decisions[id];
+    justRejected.delete(id);
+    render(DATA);
+    alert("Couldn't save: " + err.message);
+  });
 }
 
 function openPdf(id) {
@@ -354,7 +391,18 @@ function list(title, items) {
   return items && items.length ? `<div><b>${title}</b><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
 }
 
+// Rejected jobs collapse to one line. Reason chips show only right after rejecting, until the page reloads.
+function rejectedLine(j, i) {
+  const reason = pending(j)?.reason || (j.status === "rejected" ? j.status_reason : null);
+  const chips = justRejected.has(j.id) && !reason
+    ? `<div class="reasons">${REJECT_REASONS.map((r) =>
+        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>` : "";
+  return `<article class="card rejected-line"><span class="n">${i + 1}.</span><b>${esc(j.title)}</b>
+    <span class="emp-inline">· ${esc(j.employer)}</span> — <span class="no">Rejected${reason ? ` (${esc(reason)})` : ""}</span>${chips}</article>`;
+}
+
 function card(j, i) {
+  if (j.status === "rejected" || pending(j)?.decision === "reject") return rejectedLine(j, i);
   const s = j.screen;
   const chips = [];
   if (s) {
@@ -398,15 +446,15 @@ function card(j, i) {
   </article>`;
 }
 
+const rejectBtn = (id) => `<button type="button" class="reject" data-act="reject" data-id="${id}">Reject</button>`;
+
 function prepareBlock(j) {
   const d = pending(j);
-  if (d?.decision === "reject") return "";  // resumeBlock or the Rejected section shows it
-  const reject = `<button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>`;
   if (d?.decision === "prepare" || j.status === "queued")
     return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the next run (12:00, 18:00 or 02:00)</div>
-      ${j.status === "queued" ? `<div class="actions">${reject}</div>${reasonChips(j.id)}` : ""}`;
+      ${j.status === "queued" ? `<div class="actions">${rejectBtn(j.id)}</div>` : ""}`;
   if (j.status !== "candidate") return "";
-  return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button>${reject}</div>${reasonChips(j.id)}`;
+  return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button>${rejectBtn(j.id)}</div>`;
 }
 
 function resumeBlock(j) {
@@ -425,14 +473,11 @@ function resumeBlock(j) {
     }[d.decision];
   } else if (j.status !== "prepared") {
     actions = submissionBlock(j);
-  } else if (j.status === "prepared") {
+  } else {
     actions = `<div class="actions">
-        <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>
-        <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>
+        <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>${rejectBtn(j.id)}
         ${j.resume.pdf ? `<button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button>` : ""}
-      </div>
-      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
-        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+      </div>`;
   }
   return `<details><summary>Tailored resume</summary><p class="sub" style="margin:6px 0">${esc(check)}</p>
     <div class="snippet">${esc(j.resume.text)}</div></details>${actions}`;
@@ -445,9 +490,6 @@ function pending(j) {
   const d = decisions[j.id];
   return d && (PRE_STATE[d.decision] || []).includes(j.status) ? d : null;
 }
-
-const reasonChips = (id) => `<div class="reasons hidden" id="reasons-${id}">${REJECT_REASONS.map((r) =>
-  `<button type="button" data-act="reason" data-id="${id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
 
 function submissionBlock(j) {
   const s = j.submission || {};
@@ -462,9 +504,7 @@ function submissionBlock(j) {
   if (j.status === "ready")
     return `<div class="decided ok">Form filled up to the Review page. Check the answers, then submit.</div>${given}${shot}
       <div class="actions"><button type="button" class="approve" data-act="submit" data-id="${j.id}">Submit application</button>
-      <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>${pdf}</div>
-      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
-        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+      ${rejectBtn(j.id)}${pdf}</div>`;
   if (j.status === "needs_you") {
     const items = (s.needs_you || []).map((n, i) => {
       if (n.question && !n.problem) {
@@ -480,9 +520,7 @@ function submissionBlock(j) {
       <p class="sub" style="margin-top:8px">Answers you give are saved to your answer bank, so the same question never comes back.</p></div>${given}${shot}
       <div class="actions">${askable ? `<button type="button" class="approve" data-act="answers" data-id="${j.id}">Save answers and retry</button>` : ""}
       <a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer"><button type="button">Open job page</button></a>
-      <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>${pdf}</div>
-      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
-        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+      ${rejectBtn(j.id)}${pdf}</div>`;
   }
   return pdf ? `<div class="actions">${pdf}</div>` : "";
 }
@@ -492,21 +530,19 @@ document.addEventListener("click", async (e) => {
   if (!b) return;
   const id = Number(b.dataset.id);
   try {
-    if (b.dataset.act === "pdf") openPdf(id);
-    else if (b.dataset.act === "approve") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "approve", null); }
-    else if (b.dataset.act === "prepare") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "prepare", null); }
-    else if (b.dataset.act === "submit") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "submit", null); }
-    else if (b.dataset.act === "answers") {
+    const act = b.dataset.act;
+    if (act === "pdf") openPdf(id);
+    else if (act === "approve" || act === "prepare" || act === "submit" || act === "reject") saveDecision(id, act, null);
+    else if (act === "answers") {
       const card = b.closest(".card"), given = {};
       card.querySelectorAll("[data-q]").forEach((el) => { if (el.value.trim()) given[el.dataset.q] = el.value.trim(); });
       if (!Object.keys(given).length) { alert("Answer at least one question first."); return; }
-      b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "answers", null, given);
+      saveDecision(id, "answers", null, given);
     }
-    else if (b.dataset.act === "reject") $("reasons-" + id).classList.toggle("hidden");
-    else if (b.dataset.act === "reason") {
+    else if (act === "reason") {  // optional reason, added on the collapsed "Rejected" line
       let reason = b.dataset.reason;
       if (reason === "Other") reason = prompt("Reason (optional):") || "Other";
-      b.disabled = true; await saveDecision(id, "reject", reason);
+      saveDecision(id, "reject", reason);
     }
   } catch (err) {
     alert(err.message);
@@ -572,10 +608,30 @@ function wireEstimator(u) {
   n.addEventListener("input", upd); upd();
 }
 
+// A collapsible section; open/closed is remembered per section on this device.
+const CLOSED_BY_DEFAULT = new Set(["Submitted", "Dropped by the Screener", "Rejected by you"]);
+function section(key, label, extra, body) {
+  const savedState = lsGet("jh-sec-" + key);
+  const open = savedState ? savedState === "1" : !CLOSED_BY_DEFAULT.has(label);
+  return `<details class="sec" data-sec="${esc(key)}"${open ? " open" : ""}><summary class="sechead">${term(label, INFO[label], extra)}</summary>${body}</details>`;
+}
+
+// Tapping an open explanation inside a section header reads it, it doesn't fold the section.
+document.addEventListener("click", (e) => {
+  if (e.target.closest("summary .infobox")) e.preventDefault();
+});
+
+document.addEventListener("toggle", (e) => {
+  const key = e.target.dataset && e.target.dataset.sec;
+  if (key) lsSet("jh-sec-" + key, e.target.open ? "1" : "0");
+}, true);
+
 function jobsTab(d, track) {
   const mine = (j) => (j.track || "lab") === track;
   const cands = d.candidates.filter(mine);
-  const is = (j, ...s) => s.includes(j.status) && !pending(j);
+  // A decision taken elsewhere moves the job; one rejected during this visit stays put as a one-line card.
+  const settled = (j) => !pending(j) || justRejected.has(j.id);
+  const is = (j, ...s) => s.includes(j.status) && settled(j);
   const pendingReject = (j) => pending(j)?.decision === "reject";
   const pendingPrepare = (j) => pending(j)?.decision === "prepare";
   const toApprove = cands.filter((j) => is(j, "prepared"));
@@ -583,27 +639,24 @@ function jobsTab(d, track) {
   const ready = cands.filter((j) => is(j, "ready"));
   const approved = cands.filter((j) => is(j, "approved", "submit_confirmed") || (pending(j) && !pendingReject(j) && !pendingPrepare(j)));
   const submitted = cands.filter((j) => j.status === "submitted");
-  const rejected = d.rejected.filter(mine).concat(cands.filter(pendingReject));
-  const queued = cands.filter((j) => (j.status === "queued" && !pending(j)) || pendingPrepare(j));
+  const rejected = d.rejected.filter(mine).concat(cands.filter((j) => pendingReject(j) && !justRejected.has(j.id)));
+  const queued = cands.filter((j) => (j.status === "queued" && settled(j)) || pendingPrepare(j));
   const others = cands.filter((j) => is(j, "candidate"));
   const dropped = d.screened_out.filter(mine);
+  const sec = (label, items, empty, extraText = "", note = "") =>
+    section(`${track}-${label}`, label, ` · ${extraText}${items.length}`,
+      note + (items.length ? items.map(card).join("") : `<p class="empty">${empty}</p>`));
   return (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
     (track === "alt" ? `<p class="sub" style="margin-top:12px">Roles outside the lab that use your transferable skills: AI implementation, project management, technical writing, consulting, informatics, operations and QA testing. Resumes for these lead with management, documentation and AI.</p>` : "") +
-    (needsYou.length ? h2("Needs you", ` · ${needsYou.length}`) + needsYou.map(card).join("") : "") +
-    (ready.length ? h2("Ready to submit", ` · ${ready.length}`) + ready.map(card).join("") : "") +
-    h2("To approve", ` · ${toApprove.length}`) +
-    (toApprove.length ? toApprove.map(card).join("") : `<p class="empty">Nothing waiting for you.</p>`) +
-    (approved.length ? h2("Approved", ` · ${approved.length}`) + approved.map(card).join("") : "") +
-    (submitted.length ? h2("Submitted", ` · last 30 days · ${submitted.length}`) + `<details><summary>Show</summary>${submitted.map(card).join("")}</details>` : "") +
-    h2("To prepare", ` · ${queued.length}`) +
-    (queued.length ? queued.map(card).join("") : `<p class="empty">Nothing queued.</p>`) +
-    h2("Other candidates", ` · ${others.length}`) +
-    (others.length ? others.map(card).join("") : `<p class="empty">None.</p>`) +
-    h2("Dropped by the Screener", ` · last 14 days · ${dropped.length}`) +
-    (dropped.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${dropped.map(card).join("")}</details>`
-                    : `<p class="empty">None.</p>`) +
-    (rejected.length ? h2("Rejected by you", ` · last 14 days · ${rejected.length}`) +
-      `<details><summary>Show</summary>${rejected.map(card).join("")}</details>` : "");
+    (needsYou.length ? sec("Needs you", needsYou, "") : "") +
+    (ready.length ? sec("Ready to submit", ready, "") : "") +
+    sec("To approve", toApprove, "Nothing waiting for you.") +
+    (approved.length ? sec("Approved", approved, "") : "") +
+    (submitted.length ? sec("Submitted", submitted, "", "last 30 days · ") : "") +
+    sec("To prepare", queued, "Nothing queued.") +
+    sec("Other candidates", others, "None.") +
+    sec("Dropped by the Screener", dropped, "None.", "last 14 days · ", dropped.length ? `<p class="sub">Check these for misreads.</p>` : "") +
+    (rejected.length ? sec("Rejected by you", rejected, "", "last 14 days · ") : "");
 }
 
 function render(d) {
@@ -620,9 +673,9 @@ function render(d) {
   $("tab-alt").innerHTML = jobsTab(d, "alt");
 
   $("tab-stats").innerHTML =
-    h2("Why postings were filtered out") + bars(d.stats.by_reason.slice(0, 15), "reason", "n", reasonInfo) +
-    h2("Candidates by employer") + bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates") +
-    h2("Postings seen by employer") + bars(d.stats.by_employer, "employer", "seen");
+    section("stats-reasons", "Why postings were filtered out", "", bars(d.stats.by_reason.slice(0, 15), "reason", "n", reasonInfo)) +
+    section("stats-cands", "Candidates by employer", "", bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates")) +
+    section("stats-seen", "Postings seen by employer", "", bars(d.stats.by_employer, "employer", "seen"));
 
   usageModel = null;
   $("tab-usage").innerHTML = renderUsage(d.usage || []);

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     title         TEXT NOT NULL,
     location      TEXT,                   -- location text as the feed gives it
     url           TEXT,
-    posted        TEXT,                   -- as given by the feed
+    posted        TEXT,                   -- ISO date the posting went up (estimated for Workday)
     description   TEXT,
     salary_min    REAL,                   -- annual USD, parsed from the posting
     salary_max    REAL,

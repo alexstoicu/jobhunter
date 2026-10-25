@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(claude --version)",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -u -m jobhunter.scout)",
+      "Bash(git commit -q -m 'Tighten filters: 30-day age limit, lab focus, level and shift rules; show duties on cards *)"
+    ]
+  }
+}

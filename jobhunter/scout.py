@@ -31,8 +31,14 @@ def evaluate(conn, job, config, profile):
         return "filtered_out", "excluded employer"
 
     mode, city = filters.resolve_location(job["location"], job["title"], job["description"])
-    if job.get("work_mode_hint") and "remote" in job["work_mode_hint"].lower():
+    # Workday's remoteType, e.g. "Fully Remote", "Hybrid (Remote & On-site)", "On-site". Check hybrid first.
+    hint = (job.get("work_mode_hint") or "").lower()
+    if "hybrid" in hint:
+        mode = "hybrid"
+    elif "remote" in hint:
         mode = "remote"
+    elif "on-site" in hint or "onsite" in hint:
+        mode = "onsite"
     job["work_mode"], job["city"] = mode, city
 
     if mode == "remote":
@@ -88,8 +94,13 @@ def scout_employer(conn, employer, config, profile):
         counts["new"] += 1
 
         job = {"employer": employer["name"], "description": p.get("description") or "", **p}
-        if not filters.title_passes(p["title"], scout["title_include"], scout["title_exclude"]):
-            status, reason = "filtered_out", "title"
+        job["posted"] = filters.posted_date(p.get("posted"))
+        age = filters.age_days(job["posted"])
+        title_ok, title_reason = filters.title_verdict(p["title"], scout)
+        if age is not None and age > scout["max_age_days"]:
+            status, reason = "filtered_out", f"posted over {scout['max_age_days']} days ago"
+        elif not title_ok:
+            status, reason = "filtered_out", title_reason
         elif filters.is_shift_role(p["title"]):
             status, reason = "filtered_out", "shift or weekend work"
         else:
@@ -105,7 +116,7 @@ def scout_employer(conn, employer, config, profile):
                    salary_min, salary_max, work_mode, city, drive_min, drive_miles, lanes, fingerprint,
                    status, status_reason, first_seen, last_seen)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (*key, p["title"], job.get("location"), job.get("url"), str(p.get("posted") or ""), job.get("description"),
+            (*key, p["title"], job.get("location"), job.get("url"), job["posted"], job.get("description"),
              job.get("salary_min"), job.get("salary_max"), job.get("work_mode"), job.get("city"),
              job.get("drive_min"), job.get("drive_miles"), job.get("lanes"),
              job.get("fingerprint") or fingerprint(employer["name"], p["title"], p.get("location")),
@@ -113,6 +124,17 @@ def scout_employer(conn, employer, config, profile):
         db.log_event(conn, cur.lastrowid, "found", f"{status}: {reason or ''}")
         if status == "candidate":
             counts["candidate"] += 1
+
+    # Candidates the employer no longer lists are closed; ones past the age limit expire.
+    for row in conn.execute("SELECT id FROM jobs WHERE employer = ? AND status = 'candidate' AND last_seen < ?",
+                            (employer["name"], stamp)).fetchall():
+        conn.execute("UPDATE jobs SET status = 'closed', status_reason = 'no longer listed' WHERE id = ?", (row["id"],))
+        db.log_event(conn, row["id"], "closed")
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=scout["max_age_days"])).date().isoformat()
+    for row in conn.execute("SELECT id FROM jobs WHERE employer = ? AND status = 'candidate' AND posted < ?",
+                            (employer["name"], cutoff)).fetchall():
+        conn.execute("UPDATE jobs SET status = 'expired', status_reason = 'older than the age limit' WHERE id = ?", (row["id"],))
+        db.log_event(conn, row["id"], "expired")
     conn.commit()
     return counts
 

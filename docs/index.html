@@ -150,12 +150,14 @@ function card(j) {
   chips.push(j.salary_max
     ? `<span class="chip">Posted ${money(j.salary_min)}–${money(j.salary_max)}</span>`
     : `<span class="chip warn">Salary not posted · estimate coming in Stage 2</span>`);
-  if (j.posted) chips.push(`<span class="chip">${esc(j.posted)}</span>`);
+  if (j.age_days != null) chips.push(`<span class="chip">Posted ${j.age_days === 0 ? "today" : j.age_days + " d ago"}</span>`);
+  const section = (label, text, open) => text
+    ? `<details${open ? " open" : ""}><summary>${label}</summary><div class="snippet">${esc(text)}</div></details>` : "";
   return `<article class="card">
     <h3><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
     <div class="emp">${esc(j.employer)}</div>
     <div class="chips">${chips.join("")}</div>
-    <details><summary>Description excerpt</summary><div class="snippet">${esc(j.snippet)}…</div></details>
+    ${section("Duties", j.duties, false)}${section("Requirements", j.requirements, false)}
   </article>`;
 }
 

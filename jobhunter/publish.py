@@ -21,12 +21,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from jobhunter import PRIVATE, ROOT, db
+from jobhunter import PRIVATE, ROOT, db, filters
 
 DOCS = ROOT / "docs"
 KEYRING = ("jobhunter", "dashboard")
 ITERATIONS = 600_000
-SNIPPET = 900  # characters of description shown on a card
 
 
 def encrypt(payload, password):
@@ -42,8 +41,11 @@ def build_payload(conn):
     rows = lambda sql, *a: [dict(r) for r in conn.execute(sql, a)]
     candidates = rows(
         """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles,
-                  salary_min, salary_max, lanes, posted, first_seen, substr(description, 1, ?) AS snippet
-           FROM jobs WHERE status = 'candidate' ORDER BY first_seen DESC, employer""", SNIPPET)
+                  salary_min, salary_max, lanes, posted, first_seen, description
+           FROM jobs WHERE status = 'candidate' ORDER BY posted DESC, employer""")
+    for job in candidates:
+        job.update(filters.extract_sections(job.pop("description")))
+        job["age_days"] = filters.age_days(job["posted"])
     by_status = rows("SELECT status, COUNT(*) AS n FROM jobs GROUP BY status")
     by_reason = rows("""SELECT status_reason AS reason, COUNT(*) AS n FROM jobs
                         WHERE status = 'filtered_out' GROUP BY status_reason ORDER BY n DESC""")

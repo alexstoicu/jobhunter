@@ -17,6 +17,22 @@ lanes:
     name: QA / GxP compliance
     keywords: [quality assurance, QA specialist, GMP compliance, GxP, quality systems, CAPA, deviation, document control, validation specialist, data integrity]
 
+scout:
+  # Searched on feeds that support keyword search (Workday, Phenom, SmartRecruiters).
+  search_terms: [chemist, analytical, quality, QC, QA, validation, radiochemistry, radiopharmaceutical, extractables, GMP, compliance, scientist]
+  # A title must contain one of these to be considered (case-insensitive).
+  title_include: [chemist, chemistry, analytical, analyst, QC, quality, QA, validation, radio, nuclear, isotope, PET,
+                  extractable, leachable, "E&L", GMP, GxP, compliance, laboratory, lab, scientist, CMC, stability, metrology, release,
+                  HPLC, "LC/MS", LC-MS, LCMS, GC, GC-MS, chromatography, bioanalytical, spectroscopy, "mass spec"]
+  # Any of these in the title drops it.
+  title_exclude: [intern, internship, co-op, student, sales, marketing, "account manager", driver, nurse, physician,
+                  "medical science liaison", "clinical research associate", software, "data scientist", "machine learning",
+                  finance, accountant, recruiter, "human resources", postdoc, "post-doc", fellow, "field service", warehouse,
+                  "medical director", "medical affairs", "regulatory affairs", "data manager", IT, SAP, "business systems", "systems analyst", architect]
+  repost_window_days: 60
+  # Drive times come from OSRM without traffic; within this many minutes of the limit is flagged "borderline".
+  borderline_minutes: 5
+
 schedule:
   nightly_prepare: "02:00"
   submit_runs: ["12:00", "18:00"]

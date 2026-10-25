@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Review Queue</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --surface: #ffffff; --text: #1d1f21; --muted: #62666b; --line: #e3e1dc;
+    --accent: #1f6f5c; --accent-soft: #e2f0eb; --warn: #8a5a00; --warn-soft: #fbefd6;
+    --bad: #9b2c2c; --bad-soft: #f8e1e1; --chip: #efeee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141618; --surface: #1d2023; --text: #e7e6e3; --muted: #9a9ea3; --line: #2e3236;
+      --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #e2b04a; --warn-soft: #3a3020;
+      --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141618; --surface: #1d2023; --text: #e7e6e3; --muted: #9a9ea3; --line: #2e3236;
+    --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #e2b04a; --warn-soft: #3a3020;
+    --bad: #ee8b8b; --bad-soft: #3a2222; --chip: #2a2e31;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  .lock { max-width: 360px; margin: 18vh auto 0; background: var(--surface); border: 1px solid var(--line);
+          border-radius: 12px; padding: 24px; }
+  .lock input[type=password] { width: 100%; padding: 11px 12px; font-size: 16px; border-radius: 8px;
+          border: 1px solid var(--line); background: var(--bg); color: var(--text); margin: 12px 0 10px; }
+  .lock label { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--surface); color: var(--text); padding: 8px 14px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600;
+                   width: 100%; margin-top: 14px; padding: 11px; }
+  .err { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 8px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: 13px; }
+  .tabs { display: flex; gap: 6px; margin: 22px 0 4px; flex-wrap: wrap; }
+  .tabs button[aria-selected=true] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+          margin: 10px 0; }
+  .card h3 { margin: 0; font-size: 16px; line-height: 1.35; }
+  .card h3 a { color: inherit; text-decoration: none; }
+  .card h3 a:hover { text-decoration: underline; }
+  .emp { color: var(--muted); font-size: 14px; margin: 2px 0 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; white-space: nowrap; }
+  .chip.good { background: var(--accent-soft); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .snippet { white-space: pre-wrap; font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+  .bars { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; }
+  .bar { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 4px 10px; padding: 7px 0;
+         border-bottom: 1px solid var(--line); font-size: 14px; }
+  .bar:last-child { border-bottom: 0; }
+  .bar i { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--accent); opacity: .75; }
+  .bar em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .wl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 0;
+        border-bottom: 1px solid var(--line); font-size: 14px; }
+  .wl small { grid-column: 1 / -1; color: var(--muted); }
+  .empty { color: var(--muted); padding: 20px 0; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <section id="lock" class="lock">
+    <h1>Review Queue</h1>
+    <p class="sub">Enter the dashboard password.</p>
+    <form id="unlock">
+      <input id="pw" type="password" autocomplete="current-password" aria-label="Password" required>
+      <label><input id="remember" type="checkbox" checked> Remember on this device</label>
+      <button class="primary" type="submit">Unlock</button>
+      <div id="err" class="err" role="alert"></div>
+    </form>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="top">
+      <div>
+        <h1>Review Queue</h1>
+        <p class="sub" id="updated"></p>
+      </div>
+      <button id="logout" type="button">Lock</button>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="candidates" aria-selected="true">Candidates</button>
+      <button role="tab" data-tab="stats" aria-selected="false">Stats</button>
+      <button role="tab" data-tab="watchlist" aria-selected="false">Watchlist</button>
+    </div>
+    <div id="tab-candidates"></div>
+    <div id="tab-stats" class="hidden"></div>
+    <div id="tab-watchlist" class="hidden"></div>
+  </section>
+</main>
+
+<script>
+const STORE_KEY = "jh-pw";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const money = (n) => "$" + Math.round(n / 1000) + "k";
+const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP" };
+
+function store(get, value) {
+  try { return get ? localStorage.getItem(STORE_KEY) : (value ? localStorage.setItem(STORE_KEY, value) : localStorage.removeItem(STORE_KEY)); }
+  catch { return null; }
+}
+
+async function decrypt(blob, password) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: b64(blob.salt), iterations: blob.iter, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.iv) }, key, b64(blob.ct));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function unlock(password, remember) {
+  const res = await fetch("data.enc.json?t=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("No data published yet.");
+  const data = await decrypt(await res.json(), password);
+  if (remember) store(false, password);
+  render(data);
+  $("lock").classList.add("hidden");
+  $("app").classList.remove("hidden");
+}
+
+function card(j) {
+  const chips = [];
+  for (const l of (j.lanes || "").split(",").filter(Boolean)) chips.push(`<span class="chip good">${esc(LANES[l] || l)}</span>`);
+  if (j.work_mode === "remote") chips.push(`<span class="chip good">Remote</span>`);
+  else {
+    const borderline = j.drive_min > 25;
+    chips.push(`<span class="chip${borderline ? " warn" : ""}">${esc(j.work_mode === "hybrid" ? "Hybrid" : "On-site")} · ${esc(j.city)} · ${Math.round(j.drive_min)} min · ${Math.round(j.drive_miles)} mi${borderline ? " (borderline in traffic)" : ""}</span>`);
+  }
+  chips.push(j.salary_max
+    ? `<span class="chip">Posted ${money(j.salary_min)}–${money(j.salary_max)}</span>`
+    : `<span class="chip warn">Salary not posted · estimate coming in Stage 2</span>`);
+  if (j.posted) chips.push(`<span class="chip">${esc(j.posted)}</span>`);
+  return `<article class="card">
+    <h3><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
+    <div class="emp">${esc(j.employer)}</div>
+    <div class="chips">${chips.join("")}</div>
+    <details><summary>Description excerpt</summary><div class="snippet">${esc(j.snippet)}…</div></details>
+  </article>`;
+}
+
+function bars(rows, label, value) {
+  if (!rows.length) return `<p class="empty">Nothing yet.</p>`;
+  const max = Math.max(...rows.map((r) => r[value] || 0), 1);
+  return `<div class="bars">${rows.map((r) => `<div class="bar"><span>${esc(r[label] ?? "—")}</span><em>${r[value] || 0}</em>
+    <i style="width:${Math.max(2, (100 * (r[value] || 0)) / max)}%"></i></div>`).join("")}</div>`;
+}
+
+function render(d) {
+  const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
+  const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
+  $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
+  $("tiles").innerHTML = [
+    [total, "postings seen"], [count("candidate"), "passed filters"],
+    [count("filtered_out"), "filtered out"], [d.stats.by_employer.length, "employers scanned"],
+  ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${t}</span></div>`).join("");
+
+  $("tab-candidates").innerHTML = d.candidates.length
+    ? `<h2>Passed the hard filters · ${d.candidates.length}</h2><p class="sub">Not yet screened or ranked. Fit scores, salary estimates and approvals arrive in Stages 2–3.</p>` + d.candidates.map(card).join("")
+    : `<p class="empty">No candidates yet.</p>`;
+
+  $("tab-stats").innerHTML =
+    `<h2>Why postings were filtered out</h2>` + bars(d.stats.by_reason.slice(0, 15), "reason", "n") +
+    `<h2>Candidates by employer</h2>` + bars(d.stats.by_employer.filter((r) => r.candidates), "employer", "candidates") +
+    `<h2>Postings seen by employer</h2>` + bars(d.stats.by_employer, "employer", "seen");
+
+  $("tab-watchlist").innerHTML = `<h2>Watchlist · ${d.watchlist.length} employers</h2>
+    <p class="sub">"pending" = feed not supported yet. To cross a name out, tell Claude; it's never re-added.</p>
+    <div class="bars">${d.watchlist.map((w) => `<div class="wl"><span>${esc(w.name)}</span>
+      <span class="chip${w.kind === "pending" ? " warn" : " good"}">${esc(w.kind)}</span><small>${esc(w.note)}</small></div>`).join("")}</div>`;
+}
+
+document.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-tab]").forEach((x) => {
+    x.setAttribute("aria-selected", x === b);
+    $("tab-" + x.dataset.tab).classList.toggle("hidden", x !== b);
+  });
+}));
+
+$("unlock").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("err").textContent = "";
+  try { await unlock($("pw").value, $("remember").checked); }
+  catch (err) { $("err").textContent = err.name === "OperationError" ? "Wrong password." : err.message; }
+});
+
+$("logout").addEventListener("click", () => { store(false, null); location.reload(); });
+
+const saved = store(true);
+if (saved) unlock(saved, true).catch(() => store(false, null));
+</script>
+</body>
+</html>

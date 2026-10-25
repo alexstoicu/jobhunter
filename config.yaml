@@ -67,6 +67,11 @@ screener:
   fresh_bonus: 5           # posted within 3 days
   near_bonus: 3            # remote or within 15 minutes
 
+tailor:
+  model: sonnet
+  verify_model: sonnet
+  max_bullets_per_role: 6
+
 schedule:
   nightly_prepare: "02:00"
   submit_runs: ["12:00", "18:00"]

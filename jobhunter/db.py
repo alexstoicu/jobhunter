@@ -86,6 +86,10 @@ MIGRATIONS = [
     ("jobs", "screened_at", "TEXT"),
     ("jobs", "rank_score", "REAL"),        # fit score adjusted by lane, freshness, commute
     ("jobs", "queued_on", "TEXT"),         # date picked as one of the day's applications to prepare
+    ("jobs", "resume", "TEXT"),            # Tailor plan after verification, JSON
+    ("jobs", "resume_dir", "TEXT"),        # folder under private/applications with the .docx and .pdf
+    ("jobs", "prepared_at", "TEXT"),
+    ("jobs", "decided_at", "TEXT"),        # Alex's approve/reject on the dashboard
 ]
 
 

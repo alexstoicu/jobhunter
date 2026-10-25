@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import keyring
 import yaml
@@ -37,18 +38,33 @@ def encrypt(payload, password):
     return {"v": 1, "iter": ITERATIONS, "salt": b64(salt), "iv": b64(iv), "ct": b64(ct)}
 
 
+def decrypt(blob, password):
+    unb64 = base64.b64decode
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=unb64(blob["salt"]), iterations=blob["iter"])
+    key = kdf.derive(password.encode())
+    return json.loads(AESGCM(key).decrypt(unb64(blob["iv"]), unb64(blob["ct"]), None))
+
+
 def build_payload(conn):
     rows = lambda sql, *a: [dict(r) for r in conn.execute(sql, a)]
     card_sql = """SELECT id, employer, title, url, location, city, work_mode, drive_min, drive_miles, salary_min,
                          salary_max, lanes, posted, first_seen, description, status, status_reason, fit_score,
-                         rank_score, screen, queued_on
+                         rank_score, screen, queued_on, resume, resume_dir, decided_at
                   FROM jobs WHERE {} ORDER BY rank_score DESC NULLS LAST, posted DESC"""
-    candidates = rows(card_sql.format("status IN ('candidate', 'queued')"))
+    candidates = rows(card_sql.format("status IN ('candidate', 'queued', 'prepared', 'approved')"))
     screened_out = rows(card_sql.format("status = 'screened_out' AND screened_at >= date('now', '-14 day')"))
-    for job in candidates + screened_out:
+    rejected = rows(card_sql.format("status = 'rejected' AND decided_at >= date('now', '-14 day')"))
+    for job in candidates + screened_out + rejected:
         job.update(filters.extract_sections(job.pop("description")))
         job["age_days"] = filters.age_days(job["posted"])
         job["screen"] = json.loads(job["screen"]) if job["screen"] else None
+        resume, folder = job.pop("resume"), job.pop("resume_dir")
+        if resume:
+            plan = json.loads(resume)
+            pdf = Path(folder) / f"{plan['file']}.pdf"
+            job["resume"] = {"text": plan["text"], "verification": plan["verification"],
+                             "pdf": base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else None,
+                             "file": plan["file"]}
     usage_daily = rows("""SELECT substr(at, 1, 10) AS day, step, COUNT(*) AS calls, SUM(jobs) AS jobs,
                                  SUM(input_tokens + cache_write + cache_read + output_tokens) AS tokens,
                                  SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd, SUM(ok = 0) AS failed
@@ -68,6 +84,7 @@ def build_payload(conn):
         "generated": db.now(),
         "candidates": candidates,
         "screened_out": screened_out,
+        "rejected": rejected,
         "usage": usage_daily,
         "stats": {"by_status": by_status, "by_reason": by_reason, "by_employer": by_employer,
                   "last_run": last_run[0] if last_run else None},
@@ -103,9 +120,10 @@ def main(argv=None):
     print(f"Encrypted {len(payload['candidates'])} candidates -> docs/data.enc.json")
 
     if args.push:
-        git("add", "docs")
-        if git("status", "--porcelain", "docs").strip():
+        git("add", "docs/data.enc.json")
+        if git("status", "--porcelain", "docs/data.enc.json").strip():
             git("commit", "-m", "Update dashboard data")
+            git("pull", "--rebase", "--autostash")  # the phone may have pushed decisions meanwhile
             git("push")
             print("Pushed.")
         else:

@@ -72,6 +72,14 @@ def validate(bank):
     """Return a list of problems; empty means the bank is valid."""
     problems = []
 
+    # An unquoted comma in a flow-style item ({id: x, text: a, b}) splits the text into stray keys.
+    flow_items = [i for g in bank["skills"].values() for i in g] + bank["recognition"] + bank["languages"]
+    flow_items += [b for r in bank["roles"] for b in r["bullets"]]
+    for item in flow_items:
+        stray = set(item) - {"id", "text"}
+        if stray:
+            problems.append(f"{item.get('id')}: text cut at a comma (quote it): stray keys {sorted(stray)}")
+
     seen = set()
     for cid, text in _items(bank):
         if cid in seen:

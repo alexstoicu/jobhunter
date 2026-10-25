@@ -103,6 +103,19 @@
              color: var(--text); font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; line-height: 1.45; }
   .infobox.hidden { display: none; }
   .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  .actions button { padding: 8px 16px; }
+  .approve { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+  .reject { color: var(--bad); border-color: var(--bad); }
+  .reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .reasons button { padding: 4px 10px; font-size: 13px; border-radius: 999px; }
+  .decided { margin-top: 10px; font-size: 13.5px; font-weight: 600; }
+  .decided.ok { color: var(--accent); } .decided.no { color: var(--bad); }
+  .settings { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+  .settings input { width: 100%; padding: 9px 10px; font: inherit; border-radius: 8px; border: 1px solid var(--line);
+                    background: var(--bg); color: var(--text); margin: 8px 0; }
+  .settings ol { padding-left: 18px; font-size: 13.5px; color: var(--muted); }
+  .warnbar { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -124,7 +137,22 @@
         <h1>Review Queue</h1>
         <p class="sub" id="updated"></p>
       </div>
-      <button id="logout" type="button">Lock</button>
+      <div style="display:flex;gap:6px">
+        <button id="gear" type="button" aria-label="Settings">Settings</button>
+        <button id="logout" type="button">Lock</button>
+      </div>
+    </div>
+    <div id="settings" class="settings hidden">
+      <b>GitHub token for Approve / Reject</b>
+      <p class="sub" style="margin:4px 0 0">Your decisions are saved to the repo, encrypted with the dashboard password. Each device needs a token once:</p>
+      <ol>
+        <li>On github.com: Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
+        <li>Repository access: <b>Only select repositories → jobhunter</b>. Permissions: <b>Contents: Read and write</b>. Expiration: up to a year.</li>
+        <li>Paste it here. It stays only in this browser.</li>
+      </ol>
+      <input id="token" type="password" placeholder="github_pat_…" autocomplete="off" aria-label="GitHub token">
+      <div style="display:flex;gap:8px"><button id="savetoken" type="button" class="approve">Save</button><button id="cleartoken" type="button">Remove</button></div>
+      <div id="tokenmsg" class="sub" style="margin-top:6px"></div>
     </div>
     <div class="tiles" id="tiles"></div>
     <div class="tabs" role="tablist">
@@ -142,6 +170,13 @@
 
 <script>
 const STORE_KEY = "jh-pw";
+const TOKEN_KEY = "jh-gh-token";
+const REPO = "alexstoicu/jobhunter";
+const DECISIONS_PATH = "docs/decisions.enc.json";
+const REJECT_REASONS = ["Too far", "Too junior", "Too senior", "Wrong lane", "Pay too low", "Not interested", "Other"];
+let PW = null, DATA = null, decisions = {};
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -157,8 +192,11 @@ const INFO = {
   "postings seen": "Every posting the Scout read from the employers' job feeds, before any filtering.",
   "passed hard filters": "Postings that survived the free code filters (age, title, shift, location and commute, pay floor, lane keywords, duplicates) and went on to the AI Screener.",
   "after screening": "Jobs the Screener kept: lab or lab-related work at your level, no deal-breakers. Ranked by fit score plus lane, freshness and commute bonuses.",
-  "to prepare": "Today's top picks (fit 60+), up to 3 a day. Stage 3 builds a tailored resume for each one for you to approve or reject.",
-  "To prepare": "Today's top picks (fit 60+), up to 3 a day. Stage 3 builds a tailored resume for each one for you to approve or reject.",
+  "to approve": "Applications with a finished, fact-checked resume waiting for your Approve or Reject.",
+  "To approve": "Each of these has a tailored resume built only from your claim bank and fact-checked line by line. Approve sends it to the Submitter (Stage 4); Reject records your reason so ranking learns from it.",
+  "Approved": "Applications you approved. The Submitter (Stage 4) fills and submits the employer's form; until then they wait here.",
+  "To prepare": "Today's top picks (fit 60+), up to 3 a day. The Tailor builds their resumes on the next nightly run.",
+  "Rejected by you": "Applications you rejected, with your reason, for the last 14 days.",
   "Other candidates": "Screened jobs that weren't picked today, usually because the fit score is below 60. They stay here until they expire (30 days after posting) or the employer removes them.",
   "Dropped by the Screener": "Jobs the AI Screener rejected after reading the full posting (not lab work, pay below $75k, shift work, wrong level and so on). Shown for 14 days so you can catch misreads.",
   "Why postings were filtered out": "The free code filters that ran before any AI step, with how many postings each one removed. Tap a reason for what it means.",
@@ -222,12 +260,81 @@ async function decrypt(blob, password) {
   return JSON.parse(new TextDecoder().decode(plain));
 }
 
+async function deriveKey(password, salt, iter) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+}
+
+async function encrypt(obj, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const iter = 600000;
+  const key = await deriveKey(password, salt, iter);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj))));
+  const enc = (u) => btoa(String.fromCharCode(...u));
+  return { v: 1, iter, salt: enc(salt), iv: enc(iv), ct: enc(ct) };
+}
+
+const utf8b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const b64utf8 = (s) => new TextDecoder().decode(b64(s.replace(/\n/g, "")));
+
+async function gh(method, body) {
+  const token = lsGet(TOKEN_KEY);
+  const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DECISIONS_PATH}`, {
+    method, cache: "no-store",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (method === "GET" && res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.json().catch(() => ({}))).message || "request failed"}`);
+  return res.json();
+}
+
+async function loadDecisions() {
+  let blob = null;
+  if (lsGet(TOKEN_KEY)) {
+    const file = await gh("GET");
+    if (file) blob = JSON.parse(b64utf8(file.content));
+  } else {
+    const res = await fetch("decisions.enc.json?t=" + Date.now(), { cache: "no-store" });
+    if (res.ok) blob = await res.json();
+  }
+  decisions = blob ? await decrypt(blob, PW) : {};
+}
+
+async function saveDecision(id, decision, reason) {
+  if (!lsGet(TOKEN_KEY)) { openSettings("Add a GitHub token first (one time per device)."); return; }
+  const file = await gh("GET");
+  const current = file ? await decrypt(JSON.parse(b64utf8(file.content)), PW) : {};
+  current[id] = { decision, reason, at: new Date().toISOString() };
+  const content = utf8b64(JSON.stringify(await encrypt(current, PW)));
+  await gh("PUT", { message: `Decision on job ${id}`, content, ...(file ? { sha: file.sha } : {}) });
+  decisions = current;
+  render(DATA);
+}
+
+function openPdf(id) {
+  const j = DATA.candidates.find((x) => x.id === id);
+  const url = URL.createObjectURL(new Blob([b64(j.resume.pdf)], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener"; a.download = j.resume.file + ".pdf";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function openSettings(msg = "") {
+  $("settings").classList.remove("hidden");
+  $("tokenmsg").textContent = msg || (lsGet(TOKEN_KEY) ? "A token is saved on this device." : "No token saved on this device.");
+}
+
 async function unlock(password, remember) {
   const res = await fetch("data.enc.json?t=" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("No data published yet.");
-  const data = await decrypt(await res.json(), password);
+  DATA = await decrypt(await res.json(), password);
+  PW = password;
   if (remember) store(false, password);
-  render(data);
+  try { await loadDecisions(); } catch (e) { console.warn("decisions:", e); }
+  render(DATA);
   $("lock").classList.add("hidden");
   $("app").classList.remove("hidden");
 }
@@ -266,7 +373,7 @@ function card(j, i) {
   }
   const score = s ? `<div class="score ${s.fit_score >= 75 ? "hi" : s.fit_score >= 60 ? "mid" : ""}" title="Fit score">${s.fit_score}</div>` : "";
   const section = (label, text) => text ? `<details><summary>${label}</summary><div class="snippet">${esc(text)}</div></details>` : "";
-  return `<article class="card${j.status === "queued" ? " queued" : ""}">
+  return `<article class="card${j.status === "prepared" && !decisions[j.id] ? " queued" : ""}">
     <div class="head">${score}<div>
       <h3><span class="n">${i + 1}.</span><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a></h3>
       <div class="emp">${esc(j.employer)}${j.status === "screened_out" ? ` · <span style="color:var(--bad)">dropped: ${esc(j.status_reason)}</span>` : ""}</div>
@@ -276,8 +383,54 @@ function card(j, i) {
     ${s ? `<div class="lists">${list("Matches", s.matched)}${list("Gaps", s.gaps)}</div>` : ""}
     <div class="pay">${pay}</div>
     ${section("Duties", j.duties)}${section("Requirements", j.requirements)}
+    ${resumeBlock(j)}
   </article>`;
 }
+
+function resumeBlock(j) {
+  if (!j.resume) return "";
+  const v = j.resume.verification, removed = Object.keys(v.rejected || {}).length;
+  const check = `Every line cites your claim bank and passed an AI fact-check` +
+    (removed ? `; ${removed} line${removed > 1 ? "s" : ""} that overstated a claim ${removed > 1 ? "were" : "was"} removed.` : ".");
+  const d = decisions[j.id];
+  let actions;
+  if (d) {
+    actions = d.decision === "approve"
+      ? `<div class="decided ok">Approved ${new Date(d.at).toLocaleDateString()} · submission arrives in Stage 4</div>`
+      : `<div class="decided no">Rejected${d.reason ? ` (${esc(d.reason)})` : ""}</div>`;
+  } else if (j.status === "prepared") {
+    actions = `<div class="actions">
+        <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>
+        <button type="button" class="reject" data-act="reject" data-id="${j.id}">Reject</button>
+        ${j.resume.pdf ? `<button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button>` : ""}
+      </div>
+      <div class="reasons hidden" id="reasons-${j.id}">${REJECT_REASONS.map((r) =>
+        `<button type="button" data-act="reason" data-id="${j.id}" data-reason="${esc(r)}">${esc(r)}</button>`).join("")}</div>`;
+  } else {
+    actions = j.resume.pdf ? `<div class="actions"><button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button></div>` : "";
+  }
+  return `<details><summary>Tailored resume</summary><p class="sub" style="margin:6px 0">${esc(check)}</p>
+    <div class="snippet">${esc(j.resume.text)}</div></details>${actions}`;
+}
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  const id = Number(b.dataset.id);
+  try {
+    if (b.dataset.act === "pdf") openPdf(id);
+    else if (b.dataset.act === "approve") { b.disabled = true; b.textContent = "Saving…"; await saveDecision(id, "approve", null); }
+    else if (b.dataset.act === "reject") $("reasons-" + id).classList.toggle("hidden");
+    else if (b.dataset.act === "reason") {
+      let reason = b.dataset.reason;
+      if (reason === "Other") reason = prompt("Reason (optional):") || "Other";
+      b.disabled = true; await saveDecision(id, "reject", reason);
+    }
+  } catch (err) {
+    alert(err.message);
+    render(DATA);
+  }
+});
 
 function bars(rows, label, value, explain = () => null) {
   if (!rows.length) return `<p class="empty">Nothing yet.</p>`;
@@ -340,23 +493,31 @@ function wireEstimator(u) {
 function render(d) {
   const count = (s) => (d.stats.by_status.find((r) => r.status === s) || {}).n || 0;
   const total = d.stats.by_status.reduce((a, r) => a + r.n, 0);
+  const toApprove = d.candidates.filter((j) => j.status === "prepared" && !decisions[j.id]);
+  const approved = d.candidates.filter((j) => j.status === "approved" || (j.status === "prepared" && decisions[j.id]?.decision === "approve"));
+  const rejected = d.rejected.concat(d.candidates.filter((j) => j.status === "prepared" && decisions[j.id]?.decision === "reject"));
   const queued = d.candidates.filter((j) => j.status === "queued");
-  const others = d.candidates.filter((j) => j.status !== "queued");
+  const others = d.candidates.filter((j) => j.status === "candidate");
   $("updated").textContent = "Updated " + new Date(d.generated).toLocaleString();
   $("tiles").innerHTML = [
-    [total, "postings seen"], [count("candidate") + count("queued") + count("screened_out"), "passed hard filters"],
-    [count("candidate") + count("queued"), "after screening"], [queued.length, "to prepare"],
+    [total, "postings seen"], [["candidate", "queued", "prepared", "approved", "rejected", "screened_out"].reduce((a, s) => a + count(s), 0), "passed hard filters"],
+    [count("candidate") + count("queued") + count("prepared") + count("approved"), "after screening"], [toApprove.length, "to approve"],
   ].map(([n, t]) => `<div class="tile"><b>${n}</b><span>${term(t)}</span></div>`).join("");
 
   $("tab-candidates").innerHTML =
+    (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
+    h2("To approve", ` · ${toApprove.length}`) +
+    (toApprove.length ? toApprove.map(card).join("") : `<p class="empty">Nothing waiting for you.</p>`) +
+    (approved.length ? h2("Approved", ` · ${approved.length}`) + approved.map(card).join("") : "") +
     h2("To prepare", ` · ${queued.length}`) +
-    (queued.length ? `<p class="sub">Today's picks. Tailored resumes and approve/reject buttons arrive in Stage 3.</p>` + queued.map(card).join("")
-                   : `<p class="empty">Nothing queued yet.</p>`) +
+    (queued.length ? queued.map(card).join("") : `<p class="empty">Nothing queued.</p>`) +
     h2("Other candidates", ` · ${others.length}`) +
     (others.length ? others.map(card).join("") : `<p class="empty">None.</p>`) +
     h2("Dropped by the Screener", ` · last 14 days · ${d.screened_out.length}`) +
     (d.screened_out.length ? `<p class="sub">Check these for misreads.</p><details><summary>Show</summary>${d.screened_out.map(card).join("")}</details>`
-                           : `<p class="empty">None.</p>`);
+                           : `<p class="empty">None.</p>`) +
+    (rejected.length ? h2("Rejected by you", ` · last 14 days · ${rejected.length}`) +
+      `<details><summary>Show</summary>${rejected.map(card).join("")}</details>` : "");
 
   $("tab-stats").innerHTML =
     h2("Why postings were filtered out") + bars(d.stats.by_reason.slice(0, 15), "reason", "n", reasonInfo) +
@@ -388,6 +549,16 @@ $("unlock").addEventListener("submit", async (e) => {
 });
 
 $("logout").addEventListener("click", () => { store(false, null); location.reload(); });
+$("gear").addEventListener("click", () => $("settings").classList.contains("hidden") ? openSettings() : $("settings").classList.add("hidden"));
+$("savetoken").addEventListener("click", async () => {
+  const t = $("token").value.trim();
+  if (!t) return;
+  lsSet(TOKEN_KEY, t);
+  $("token").value = "";
+  try { await gh("GET"); $("tokenmsg").textContent = "Saved and working."; await loadDecisions(); render(DATA); }
+  catch (e) { $("tokenmsg").textContent = "Saved, but GitHub refused it: " + e.message; }
+});
+$("cleartoken").addEventListener("click", () => { lsSet(TOKEN_KEY, null); openSettings("Token removed from this device."); render(DATA); });
 
 const saved = store(true);
 if (saved) unlock(saved, true).catch(() => store(false, null));

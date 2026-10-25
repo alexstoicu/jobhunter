@@ -1,4 +1,4 @@
-"""Nightly run (Windows Task Scheduler, 02:00): Scout -> Screener -> publish.
+"""Nightly run (Windows Task Scheduler, 02:00): decisions -> Scout -> Screener -> Tailor -> publish.
 
 Each step runs even if an earlier one failed, so the dashboard always gets refreshed.
 Log: data/logs/nightly-YYYY-MM-DD.log
@@ -11,8 +11,10 @@ from datetime import date
 from jobhunter import DATA
 
 STEPS = [
+    ("decisions", "jobhunter.decisions", []),
     ("scout", "jobhunter.scout", []),
     ("screen", "jobhunter.screen", []),
+    ("tailor", "jobhunter.tailor", []),
     ("publish", "jobhunter.publish", ["--push"]),
 ]
 

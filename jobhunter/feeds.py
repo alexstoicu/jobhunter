@@ -9,6 +9,7 @@ whose title already passed the filter, to keep requests low.
 import html
 import re
 import time
+import urllib.parse
 
 from jobhunter.http import request_json
 
@@ -104,7 +105,8 @@ def phenom_detail(feed, posting):
 def smartrecruiters_search(feed, terms):
     found = {}
     for term in terms:
-        data = request_json(f"https://api.smartrecruiters.com/v1/companies/{feed}/postings?q={term}&country=us&limit=100")
+        data = request_json(f"https://api.smartrecruiters.com/v1/companies/{feed}/postings"
+                            f"?q={urllib.parse.quote(term)}&country=us&limit=100")
         for p in data.get("content", []):
             loc = p.get("location", {})
             found[p["id"]] = {

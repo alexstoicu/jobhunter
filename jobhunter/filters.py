@@ -108,7 +108,10 @@ def resolve_location(location, title="", description=""):
     loc = location or ""
     text = f"{title} {loc}".lower()
     desc = (description or "").lower()
-    if "remote" in text or "virtual" in text or "work from home" in text:
+    # "Remote" postings that ask for office days elsewhere are really hybrid.
+    office_days = re.search(r"\bhybrid\b|\b\d\s*(\+\s*)?days?\s*(a|per|each)\s*week\s*(in|at|on)[- ]?(the\s*)?(office|site|person)"
+                            r"|\bin[- ]office\b.{0,40}\bdays\b", desc)
+    if ("remote" in text or "virtual" in text or "work from home" in text) and not office_days:
         mode = "remote"
     elif "hybrid" in text or "hybrid" in desc:
         mode = "hybrid"

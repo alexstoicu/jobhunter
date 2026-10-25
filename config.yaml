@@ -1,0 +1,25 @@
+# Public pipeline settings. Personal values live in private/profile.yaml.
+pilot:
+  prepare_per_day: 3
+  submit_cap_per_day: 5
+
+lanes:
+  radiochem:
+    name: Radiochemistry / radiopharma QC
+    keywords: [radiochem, radiopharm, radioligand, radiotracer, radiolabel, nuclear pharmacy, PET, SPECT, HPLC-RAD, radio-TLC, isotope]
+  analytical:
+    name: Analytical chemistry and method validation
+    keywords: [analytical chemist, analytical scientist, method validation, method development, method transfer, HPLC, GC, chromatography, QC chemist, QC analyst, ICH Q2]
+  el:
+    name: Extractables and leachables
+    keywords: [extractables, leachables, E&L, container closure, USP 1663, USP 1664]
+  qa:
+    name: QA / GxP compliance
+    keywords: [quality assurance, QA specialist, GMP compliance, GxP, quality systems, CAPA, deviation, document control, validation specialist, data integrity]
+
+schedule:
+  nightly_prepare: "02:00"
+  submit_runs: ["12:00", "18:00"]
+  inbox_every_minutes: 30
+  inbox_hours: ["08:00", "18:00"]
+  morning_email: "07:00"

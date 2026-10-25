@@ -1,0 +1,19 @@
+# Personal data: never pushed (this repo is public)
+private/
+data/
+*.docx
+*.pdf
+Job Application Agent Team*.md
+
+# Secrets
+.env
+*.key
+*.token
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Claude Code local settings
+.claude/settings.local.json

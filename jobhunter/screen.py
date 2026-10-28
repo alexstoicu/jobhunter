@@ -2,7 +2,10 @@
 
 Then ranks screened jobs and queues the day's top N for preparation (Tailor, Stage 3).
 
-Run: .venv\\Scripts\\python -m jobhunter.screen [--limit N] [--dry-run]
+Run: .venv\\Scripts\\python -m jobhunter.screen [--limit N] [--dry-run] [--rescreen]
+
+--rescreen re-scores every job screened before (after the claim bank changes). Jobs Alex picked go
+back to the queue to be re-tailored; automatic picks compete again. Rejected and submitted jobs stay.
 """
 import argparse
 import json
@@ -61,8 +64,7 @@ def profile_text(bank):
     for r in bank["roles"]:
         where = ", ".join(x for x in (r.get("employer"), r.get("location")) if x)
         lines.append(f"* {r['title']} | {where} | {r['start']} to {r['end']}")
-        if r.get("lanes"):  # relevant roles in full; others by title and dates only
-            lines += [f"  - {b['text']}" for b in r["bullets"]]
+        lines += [f"  - {b['text']}" for b in r["bullets"]]
     projects = bank.get("projects")
     if projects:
         lines.append(f"\n{projects['heading'].upper()} ({projects['start']} to {projects['end']})")
@@ -215,10 +217,23 @@ def queue_today(conn, config):
     return total
 
 
+def reset_for_rescreen(conn):
+    """Mark every previously screened, still-open job for screening again. Returns how many."""
+    open_ = "screened_at IS NOT NULL AND status IN ('candidate', 'screened_out', 'queued', 'prepared')"
+    conn.execute(f"UPDATE jobs SET status = 'queued', screened_at = NULL, status_reason = NULL "
+                 f"WHERE {open_} AND picked_by = 'alex'")
+    conn.execute(f"UPDATE jobs SET status = 'candidate', screened_at = NULL, status_reason = NULL, "
+                 f"queued_on = NULL, picked_by = NULL WHERE {open_} AND picked_by IS NOT 'alex'")
+    conn.commit()
+    return conn.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('candidate', 'queued') "
+                        "AND screened_at IS NULL AND fit_score IS NOT NULL").fetchone()[0]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, help="screen at most N jobs this run")
     parser.add_argument("--dry-run", action="store_true", help="print the first prompt and exit")
+    parser.add_argument("--rescreen", action="store_true", help="re-score every previously screened job")
     args = parser.parse_args(argv)
 
     config, profile, _ = load_settings()
@@ -227,8 +242,12 @@ def main(argv=None):
         bank = yaml.safe_load(f)
     conn = db.connect()
     limit = min(args.limit or s["max_jobs_per_run"], s["max_jobs_per_run"])
+    if args.rescreen and not args.dry_run:
+        limit = reset_for_rescreen(conn)
+    # Previously scored jobs (being re-screened) go before never-screened ones.
     jobs = [dict(r) for r in conn.execute(
-        "SELECT * FROM jobs WHERE status = 'candidate' AND screened_at IS NULL ORDER BY posted DESC LIMIT ?", (limit,))]
+        "SELECT * FROM jobs WHERE status IN ('candidate', 'queued') AND screened_at IS NULL "
+        "ORDER BY fit_score IS NULL, posted DESC LIMIT ?", (limit,))]
     wage_table = wages.load()
     systems = {t: system_prompt(bank, profile, wage_table, t) for t in ("lab", "alt")}
 
@@ -261,7 +280,8 @@ def main(argv=None):
                 failed += 1
                 continue
             r["apply_figure"] = max(r["apply_figure"], profile["salary_floor_usd"])
-            status = "screened_out" if r["drop"] else "candidate"
+            # A job Alex picked stays queued whatever the score: he chose it.
+            status = "queued" if job["status"] == "queued" else "screened_out" if r["drop"] else "candidate"
             conn.execute("""UPDATE jobs SET fit_score = ?, screen = ?, screened_at = ?, rank_score = ?, status = ?,
                             status_reason = ? WHERE id = ?""",
                          (r["fit_score"], json.dumps(r), db.now(), rank(job, r, config), status,

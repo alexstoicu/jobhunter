@@ -63,7 +63,8 @@ RULES
 - Keep each bullet as complete as its source: keep every tool, technique, system and document type
   the source lists (reorder them so the ones this job asks for come first). Never cut a bullet down
   to a fragment like "Documented deviations." A bullet is one full line or two; merging two related
-  claims of the same role into one strong bullet is good.
+  claims of the same role into one strong bullet is good. Never merge more than two claims, and keep
+  every bullet under about 35 words; when the job needs more, write more bullets instead.
 - Bullets in a role cite only that role's claims (IDs that start with the role id). Summary lines
   cite sum.* and/or role claims. Skill items cite sk.* claims.
 - Include EVERY role from the claim bank exactly once, by id. Use mode "full" for roles relevant to
@@ -74,7 +75,7 @@ RULES
 - Summary: 2-4 sentences leading with the strengths this job values most.
 - Skills: 3-4 groups with job-relevant labels, most relevant items first.
 - recognition: the rec.* IDs worth listing for this job (may be empty).
-- projects: lines for the "AI & Technology Projects" section, citing only ai.* claims. Include them
+- projects: lines for the applied AI projects section, citing only ai.* claims. Include them
   when they help this job; for lab jobs usually 0-2 (e.g. AI-assisted GxP documentation).
 - Plain, professional US resume English. No first person. No contact details, dates or employer
   names in your text (those are filled in from the claim bank)."""
@@ -153,10 +154,11 @@ TRUNCATION = 0.6  # a bullet shorter than this share of its sources is put back 
 def restore(bullet, index, problems):
     """Undo over-trimming: a bullet that drops most of its source falls back to the source text.
 
-    The sources are Alex's own resume lines, so the full text is always safe to use.
+    The sources are Alex's own resume lines, so the full text is always safe to use. Only single-claim
+    bullets are restored: a merged bullet is meant to be shorter than its sources put together.
     """
     sources = [index[c] for c in bullet["cites"]]
-    if len(bullet["text"]) < TRUNCATION * sum(len(s) for s in sources):
+    if len(sources) == 1 and len(bullet["text"]) < TRUNCATION * len(sources[0]):
         problems.append(f"restored full claim text for: {bullet['text'][:60]}")
         bullet["text"] = " ".join(s.rstrip(".") + "." for s in sources)
     return bullet

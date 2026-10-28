@@ -19,13 +19,15 @@ class ClaudeError(RuntimeError):
     pass
 
 
-def run(conn, step, system, prompt, schema, model="sonnet", jobs=1, timeout=600):
+def run(conn, step, system, prompt, schema, model="sonnet", jobs=1, timeout=600, effort=None):
     """Send one prompt; return the structured output (a dict matching `schema`)."""
     WORKDIR.mkdir(exist_ok=True)
     exe = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.exe")
     cmd = [exe, "-p", "--output-format", "json", "--model", model, "--tools", "",
            "--strict-mcp-config", "--no-session-persistence",
            "--system-prompt", system, "--json-schema", json.dumps(schema)]
+    if effort:
+        cmd += ["--effort", effort]
     proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
                           cwd=WORKDIR, timeout=timeout, env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "jobhunter"})
     try:

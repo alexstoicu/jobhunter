@@ -16,6 +16,7 @@ from pathlib import Path
 
 from jobhunter import PRIVATE, db
 from jobhunter.scout import load_settings
+from jobhunter.lever import LeverApplication
 from jobhunter.workday import Escalation, WorkdayApplication
 
 PROFILE_DIR = PRIVATE / "browser"
@@ -49,7 +50,7 @@ def save(conn, job, status, record, reason=None):
 def process(conn, job, config, playwright, review_only, force_submit=False):
     cfg = config["submitter"]
     ats = ats_of(job["url"])
-    if ats != "workday":
+    if ats not in ("workday", "lever"):
         record = {"needs_you": [{"step": "Start", "problem": f"The Submitter can't fill {ats} forms yet. "
                                  "Apply with the tailored PDF using the link."}], "answers": [], "screens": []}
         save(conn, job, "needs_you", record, f"{ats} not supported yet")
@@ -64,7 +65,7 @@ def process(conn, job, config, playwright, review_only, force_submit=False):
     context = playwright.chromium.launch_persistent_context(
         str(PROFILE_DIR), headless=not cfg["headed"], viewport={"width": 1280, "height": 900})
     page = context.pages[0] if context.pages else context.new_page()
-    app = WorkdayApplication(page, job, conn, pdf, out, submit=may_submit)
+    app = (LeverApplication if ats == "lever" else WorkdayApplication)(page, job, conn, pdf, out, submit=may_submit)
     try:
         outcome = app.run()
         status = "submitted" if outcome == "submitted" else "ready"
@@ -79,7 +80,11 @@ def process(conn, job, config, playwright, review_only, force_submit=False):
             app.shot("crash")
         except Exception:
             pass
-        app.record["needs_you"].append({"step": app.step_name() if page else "", "problem": f"Submitter error: {e}"[:300]})
+        step = app.step_name() if page else ""
+        stuck = "a button or field it needed never appeared" if "Timeout" in str(e) else "something unexpected happened"
+        app.record["needs_you"].append({"step": step, "problem": f"The Submitter stopped{f' on the {step} page' if step else ''}: "
+                                        f"{stuck}. Open the job page to finish this one by hand.",
+                                        "details": [str(e).splitlines()[0][:200]]})
         save(conn, job, "needs_you", app.record, "submitter error")
         return "needs_you"
     finally:

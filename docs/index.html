@@ -420,6 +420,8 @@ function card(j, i) {
   }
   if (j.age_days != null) chips.push(`<span class="chip">Posted ${j.age_days === 0 ? "today" : j.age_days + " d ago"}</span>`);
   for (const f of (s && s.red_flags) || []) chips.push(`<span class="chip bad">${esc(f)}</span>`);
+  const closed = ((s && s.red_flags) || []).find((f) => /deadline.*(passed|expired|closed)|no longer accepting|position (has been )?filled/i.test(f));
+  if (closed) chips.unshift(`<span class="chip bad"><b>May already be closed</b></span>`);
 
   let pay;
   if (s && s.salary) {
@@ -446,12 +448,13 @@ function card(j, i) {
   </article>`;
 }
 
+const appliedBtn = (id) => `<button type="button" data-act="applied" data-id="${id}" title="Use this when you applied on the employer's site yourself">I applied myself</button>`;
 const rejectBtn = (id) => `<button type="button" class="reject" data-act="reject" data-id="${id}">Reject</button>`;
 
 function prepareBlock(j) {
   const d = pending(j);
   if (d?.decision === "prepare" || j.status === "queued")
-    return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the next run (12:00, 18:00 or 02:00)</div>
+    return `<div class="decided ok">${j.picked_by === "auto" ? "Today's pick" : "Picked by you"} · the resume is built on the overnight run (1:00 AM)</div>
       ${j.status === "queued" ? `<div class="actions">${rejectBtn(j.id)}</div>` : ""}`;
   if (j.status !== "candidate") return "";
   return `<div class="actions"><button type="button" class="approve" data-act="prepare" data-id="${j.id}">Prepare application</button>${rejectBtn(j.id)}</div>`;
@@ -466,16 +469,17 @@ function resumeBlock(j) {
   let actions;
   if (d) {
     actions = {
-      approve: `<div class="decided ok">Approved · the Submitter fills the form on its next run</div>`,
+      approve: `<div class="decided ok">Approved · the Submitter fills the form overnight</div>`,
       reject: `<div class="decided no">Rejected${d.reason ? ` (${esc(d.reason)})` : ""}</div>`,
-      submit: `<div class="decided ok">Submit confirmed · it goes out on the next run</div>`,
-      answers: `<div class="decided ok">Answers saved · the Submitter retries on its next run</div>`,
+      submit: `<div class="decided ok">Submit confirmed · it goes out overnight</div>`,
+      applied: `<div class="decided ok">Marked as applied by you</div>`,
+      answers: `<div class="decided ok">Answers saved · the Submitter retries overnight</div>`,
     }[d.decision];
   } else if (j.status !== "prepared") {
     actions = submissionBlock(j);
   } else {
     actions = `<div class="actions">
-        <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>${rejectBtn(j.id)}
+        <button type="button" class="approve" data-act="approve" data-id="${j.id}">Approve</button>${appliedBtn(j.id)}${rejectBtn(j.id)}
         ${j.resume.pdf ? `<button type="button" data-act="pdf" data-id="${j.id}">Open PDF</button>` : ""}
       </div>`;
   }
@@ -485,6 +489,7 @@ function resumeBlock(j) {
 
 // The decision Alex made on this device or another that the PC hasn't applied yet.
 const PRE_STATE = { prepare: ["candidate"], approve: ["prepared"], submit: ["ready"], answers: ["needs_you"],
+  applied: ["prepared", "approved", "ready", "needs_you"],
   reject: ["candidate", "queued", "prepared", "approved", "ready", "needs_you"] };
 function pending(j) {
   const d = decisions[j.id];
@@ -498,13 +503,13 @@ function submissionBlock(j) {
   const given = (s.answers || []).length ? `<details><summary>Answers entered (${s.answers.length})</summary><div class="snippet">${
     s.answers.map((a) => `${esc(a.question)}\n  → ${esc(a.answer)}  [${esc(a.source)}]`).join("\n")}</div></details>` : "";
   if (j.status === "approved" || j.status === "submit_confirmed")
-    return `<div class="decided ok">${j.status === "approved" ? "Approved" : "Submit confirmed"} · the Submitter runs at 12:00, 18:00 and 02:00</div><div class="actions">${pdf}</div>`;
+    return `<div class="decided ok">${j.status === "approved" ? "Approved" : "Submit confirmed"} · the Submitter runs overnight (1:00 and 3:30 AM)</div><div class="actions">${pdf}</div>`;
   if (j.status === "submitted")
     return `<div class="decided ok">Submitted ${new Date(j.submitted_at).toLocaleString()}</div>${given}${shot}`;
   if (j.status === "ready")
     return `<div class="decided ok">Form filled up to the Review page. Check the answers, then submit.</div>${given}${shot}
       <div class="actions"><button type="button" class="approve" data-act="submit" data-id="${j.id}">Submit application</button>
-      ${rejectBtn(j.id)}${pdf}</div>`;
+      ${appliedBtn(j.id)}${rejectBtn(j.id)}${pdf}</div>`;
   if (j.status === "needs_you") {
     const items = (s.needs_you || []).map((n, i) => {
       if (n.question && !n.problem) {
@@ -520,7 +525,7 @@ function submissionBlock(j) {
       <p class="sub" style="margin-top:8px">Answers you give are saved to your answer bank, so the same question never comes back.</p></div>${given}${shot}
       <div class="actions">${askable ? `<button type="button" class="approve" data-act="answers" data-id="${j.id}">Save answers and retry</button>` : ""}
       <a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer"><button type="button">Open job page</button></a>
-      ${rejectBtn(j.id)}${pdf}</div>`;
+      ${appliedBtn(j.id)}${rejectBtn(j.id)}${pdf}</div>`;
   }
   return pdf ? `<div class="actions">${pdf}</div>` : "";
 }
@@ -532,7 +537,7 @@ document.addEventListener("click", async (e) => {
   try {
     const act = b.dataset.act;
     if (act === "pdf") openPdf(id);
-    else if (act === "approve" || act === "prepare" || act === "submit" || act === "reject") saveDecision(id, act, null);
+    else if (act === "approve" || act === "prepare" || act === "submit" || act === "reject" || act === "applied") saveDecision(id, act, null);
     else if (act === "answers") {
       const card = b.closest(".card"), given = {};
       card.querySelectorAll("[data-q]").forEach((el) => { if (el.value.trim()) given[el.dataset.q] = el.value.trim(); });

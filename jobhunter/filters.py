@@ -37,7 +37,11 @@ def title_verdict(title, rules):
         return False, "title: supply/logistics without development"
     # Any "quality" title other than quality control counts as QA.
     is_qa = _any(title, rules["title_qa"]) or (_has_word(title, "quality") and not _has_word(title, "quality control"))
-    if is_qa and _any(title, rules["title_senior"]):
+    # "Senior Associate" is mid-level in pharma: blank it out before looking for senior words.
+    level_text = title
+    for phrase in rules.get("title_senior_ok", []):
+        level_text = re.sub(re.escape(phrase), " ", level_text, flags=re.I)
+    if is_qa and _any(level_text, rules["title_senior"]):
         return False, "title: senior QA"
     if is_qa or _any(title, rules["title_lab"]):
         return True, None

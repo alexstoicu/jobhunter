@@ -8,6 +8,7 @@ dashboard password): {"<job id>": {"decision": ..., "reason": ..., "answers": {.
   reject            on any open job    -> rejected for good (reposts are treated as duplicates)
   submit            on a ready job     -> submit_confirmed (the Submitter clicks Submit next run)
   answers           on a needs_you job -> answers are added to the answer bank; job back to approved
+  applied           on an open job     -> Alex applied by hand on the employer's site: marked submitted
 Each entry is applied once: only when its "at" is newer than the job's decided_at.
 
 Run: .venv\\Scripts\\python -m jobhunter.decisions
@@ -55,6 +56,9 @@ def main(argv=None):
                 if reply:
                     answers.learn(question, reply)
             new = "approved"
+        elif kind == "applied" and status in ("prepared", "approved", "ready", "needs_you", "submit_confirmed"):
+            new = "submitted"
+            conn.execute("UPDATE jobs SET submitted_at = ? WHERE id = ?", (at, int(job_id)))
         elif kind == "reject" and status in ("candidate", "queued", "approved", "ready", "needs_you"):
             new = "rejected"  # permanent: reposts of a rejected job are caught as duplicates by the Scout
         else:

@@ -32,8 +32,11 @@ scout:
               extractable*, leachable*, "E&L", stability, method*, validation, CMC, formulation*, "drug product",
               "product development", assay*, bioassay*, immunoassay*, ADA, PK, biomarker*, metrology, microbiolog*]
   title_qa: ["quality assurance", QA, compliance, "quality systems", audit*, "quality operations", "quality specialist",
-             "quality engineer", "quality associate", "quality analyst"]
+             "quality engineer", "quality associate", "quality analyst",
+             investigator, deviation*, CAPA]  # event/deviation investigators do the OOS/OOT and deviation work
   title_senior: [senior, sr, lead, principal, manager, head, staff, expert, specialist III, "associate III"]
+  # In pharma "Senior Associate" is a mid-level title, so these do not count as senior QA.
+  title_senior_ok: ["senior associate", "sr associate", "sr. associate", "senior associate II", "sr. associate I"]
   title_supply: [supply, logistics, planner, planning, procurement, buyer, "materials management", sourcing]
   title_development: [development, start-up, startup, implementation, commissioning, launch, "new facility", "tech transfer",
                       "technology transfer", build-out, buildout]
@@ -114,8 +117,9 @@ screener:
   near_bonus: 3            # remote or within 15 minutes
 
 tailor:
-  model: sonnet
-  verify_model: sonnet
+  model: opus              # runs only in the 1-4 AM window; a few resumes a day, where quality pays off most
+  effort: medium
+  verify_model: sonnet     # a different model than the writer, so it catches the writer's mistakes
   max_bullets_per_role: 6
 
 submitter:

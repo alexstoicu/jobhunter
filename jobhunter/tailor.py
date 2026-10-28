@@ -371,7 +371,7 @@ def prepare(conn, job, bank, config, make_pdf=True, rerender=False):
         if job.get("track") == "alt":
             system += ALT_GUIDANCE
         prompt = f"CLAIM BANK\n{bank_text(bank)}\n\n{job_text(job, screen)}"
-        plan = claude.run(conn, "tailor", system, prompt, PLAN_SCHEMA, model=t["model"], jobs=1)
+        plan = claude.run(conn, "tailor", system, prompt, PLAN_SCHEMA, model=t["model"], jobs=1, effort=t.get("effort"))
         plan, code_problems = code_check(plan, bank, t["max_bullets_per_role"])
         rejected = ai_check(conn, plan, bank, t["verify_model"])
         plan["verification"] = {"code": code_problems, "rejected": rejected}

@@ -42,7 +42,9 @@ def workday_search(feed, terms):
             data = request_json(f"{api}/jobs", {"limit": PAGE, "offset": page * PAGE, "searchText": term, "appliedFacets": {}})
             postings = data.get("jobPostings", [])
             for p in postings:
-                path = p["externalPath"]
+                path = p.get("externalPath")
+                if not path:  # some Workday listings (featured or ad slots) carry no posting path
+                    continue
                 found[path] = {
                     "external_id": path.rsplit("/", 1)[-1],
                     "title": p["title"],

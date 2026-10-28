@@ -24,5 +24,8 @@
       "PowerShell(git push *)",
       "PowerShell(.venv\\Scripts\\python -m jobhunter.*)"
     ]
+  },
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   }
 }

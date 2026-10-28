@@ -11,7 +11,9 @@ import re
 from datetime import date
 from urllib.parse import urlparse
 
-from jobhunter import answers, vault
+import yaml
+
+from jobhunter import PRIVATE, answers, vault
 
 NEXT_NAME = re.compile(r"^\s*(Save and Continue|Next|Continue|Submit)\s*$", re.I)
 
@@ -26,6 +28,18 @@ KNOWN = {  # container ids as seen on Biogen's Workday (formField-<id>)
     "formField-postalCode": "contact.postal_code",
     "formField-phoneNumber": "contact.phone",
 }
+
+# Fields the Submitter never touches: optional extras, and the LinkedIn profile Alex keeps off applications.
+LEAVE_ALONE = {"formField-preferredCheck", "formField-skills", "formField-linkedInAccount",
+               "formField-gradeAverage", "formField-fieldOfStudy", "formField-websiteUrl",
+               # filled by fill_experience from the claim bank
+               "formField-jobTitle", "formField-companyName", "formField-location", "formField-currentlyWorkHere",
+               "formField-startDate", "formField-endDate", "formField-roleDescription", "formField-schoolName",
+               "formField-degree"}
+
+# Degree wording differs per tenant; the first option containing one of these words wins.
+DEGREE_WORDS = {"msc": ("master", "m.s", "msc", "m.sc", "ms "), "bsc": ("bachelor", "b.s", "bsc", "b.sc", "bs ")}
+WORK_ENTRIES = 10  # work history entries to enter, newest first
 
 # Runs in the page: describe every visible form field and tag it with data-jh-key.
 EXTRACT_JS = r"""
@@ -113,7 +127,10 @@ class WorkdayApplication:
             loc.first.click(force=True)  # Workday overlays a click_filter div on many buttons
 
     def settle(self, ms=2000):
-        self.page.wait_for_load_state("networkidle")
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass  # some tenants never go quiet (tracking calls); the fixed wait below is enough
         self.page.wait_for_timeout(ms)
 
     def wait_for_form(self, timeout=45):
@@ -159,7 +176,7 @@ class WorkdayApplication:
 
     def errors(self):
         loc = self.page.locator("[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], "
-                                "[data-automation-id='errorBanner'] li")
+                                "[data-automation-id='errorBanner'] li, [role='alert']")
         return [t.strip() for t in loc.all_inner_texts() if t.strip()]
 
     # --- flow ------------------------------------------------------------------------
@@ -198,57 +215,118 @@ class WorkdayApplication:
                 raise Escalation(f"form errors on {step}: {errs[:3]}")
         raise Escalation("did not reach the Review page")
 
+    def signed_in(self):
+        """Past the account step. The progress bar also shows on the sign-in page, as "Create Account/Sign In"."""
+        if not self.page.locator("[data-automation-id='progressBarActiveStep']").count():
+            return False
+        return not re.search(r"create account|sign in", self.step_name(), re.I)
+
+    def visible(self, *locators):
+        """The first of the locators that is on screen, or None."""
+        for loc in locators:
+            if loc.count() and loc.first.is_visible():
+                return loc.first
+        return None
+
+    def email_box(self):
+        return self.visible(self.page.locator("[data-automation-id='email']"),
+                            self.page.get_by_label(re.compile("^email", re.I)))
+
+    def password_box(self):
+        return self.visible(self.page.locator("[data-automation-id='password']"),
+                            self.page.get_by_label(re.compile("^password", re.I)))
+
+    def sign_in_form(self):
+        """Fill and submit the Sign In form (the account already exists)."""
+        page = self.page
+        link = self.visible(page.locator("[data-automation-id='signInLink']"),
+                            page.get_by_role("link", name=re.compile("^sign in$", re.I)))
+        if link and not page.locator("[data-automation-id='signInSubmitButton']").count():
+            link.click()
+            self.settle(1000)
+        self.email_box().fill(_get(self.bank, "contact.email"))
+        self.password_box().fill(self.password)
+        self.click(self.visible(page.locator("[data-automation-id='signInSubmitButton']"),
+                                page.get_by_role("button", name=re.compile("^sign in$", re.I))))
+        self.record["account"] = "signed in"
+
+    def create_account_form(self):
+        page = self.page
+        link = self.visible(page.locator("[data-automation-id='createAccountLink']"),
+                            page.get_by_role("link", name=re.compile("^create account$", re.I)),
+                            page.get_by_role("button", name=re.compile("^create account$", re.I)))
+        if link:
+            link.click()
+            self.settle(1000)
+        self.email_box().fill(_get(self.bank, "contact.email"))
+        self.password_box().fill(self.password)
+        verify = page.locator("[data-automation-id='verifyPassword']")
+        if verify.count():
+            verify.first.fill(self.password)
+        box = page.locator("[data-automation-id='createAccountCheckbox']")
+        if box.count():
+            box.first.check(force=True)
+        self.click(self.visible(page.locator("[data-automation-id='createAccountSubmitButton']"),
+                                page.get_by_role("button", name=re.compile("^create account$", re.I))))
+        self.record["account"] = "created"
+
+    def account_state(self, timeout=25):
+        """Wait until the page settles: "in" (signed in), "form" (a sign-in form), "verify" or "unknown"."""
+        for _ in range(timeout * 2):
+            if self.signed_in():
+                return "in"
+            body = self.page.inner_text("body").lower()
+            if "verify your" in body or "verification email" in body:
+                return "verify"
+            if self.password_box():
+                return "form"
+            self.page.wait_for_timeout(500)
+        return "unknown"
+
     def sign_in(self):
         page = self.page
-        email = _get(self.bank, "contact.email")
-        password, created = vault.get(self.host)
+        self.password, created = vault.get(self.host)
         self.settle(1500)
-        email_box = page.locator("[data-automation-id='email']")
-        signin_link = page.locator("[data-automation-id='signInLink'], [data-automation-id='utilityButtonSignIn']")
-        if not (email_box.count() and email_box.first.is_visible()) and not page.locator(
-                "[data-automation-id='createAccountLink']").count():
-            if page.locator("[data-automation-id='progressBarActiveStep']").count():
-                self.record["account"] = "already signed in"
-                return
-            if signin_link.count():
-                signin_link.first.click()
-                self.settle(1000)
+        if self.signed_in():
+            self.record["account"] = "already signed in"
+            return
+        entry = self.visible(page.locator("[data-automation-id='utilityButtonSignIn']"))
+        if entry and not self.email_box():
+            entry.click()
+            self.settle(1000)
         if created:
-            create = page.locator("[data-automation-id='createAccountLink']")
-            if create.count():
-                create.first.click()
-                self.settle(1000)
-            page.locator("[data-automation-id='email']").first.fill(email)
-            page.locator("[data-automation-id='password']").first.fill(password)
-            page.locator("[data-automation-id='verifyPassword']").first.fill(password)
-            box = page.locator("[data-automation-id='createAccountCheckbox']")
-            if box.count():
-                box.first.check(force=True)
-            self.click("[data-automation-id='createAccountSubmitButton']")
-            self.record["account"] = "created"
+            self.create_account_form()
         else:
-            link = page.locator("[data-automation-id='signInLink']")
-            if link.count() and not page.locator("[data-automation-id='signInSubmitButton']").count():
-                link.first.click()
-                self.settle(1000)
-            page.locator("[data-automation-id='email']").first.fill(email)
-            page.locator("[data-automation-id='password']").first.fill(password)
-            self.click("[data-automation-id='signInSubmitButton']")
-            self.record["account"] = "signed in"
-        self.settle(3000)
-        errs = self.errors()
-        body = page.inner_text("body").lower()
-        if errs or "verify your" in body or "verification" in body:
+            self.sign_in_form()
+        self.settle(2000)
+        state = self.account_state()
+        # A saved password with no account behind it (an earlier attempt never created one): create the account now.
+        if state == "form" and not created:
+            self.create_account_form()
+            created = True
+            self.settle(2000)
+            state = self.account_state()
+        # Some sites send you back to Sign In after creating the account; sign in with the new password.
+        if state == "form" and created and not self.errors():
+            self.sign_in_form()
+            self.record["account"] = "created, then signed in"
+            self.settle(2000)
+            state = self.account_state()
+        if state != "in":
             self.shot("account")
-            self.record["needs_you"].append({"step": "Account", "problem":
-                "The site needs something before signing in (email verification or an account problem).",
-                "details": errs or ["Check your inbox for a verification email from this employer."]})
+            errs = self.errors()
+            why = ("The site wants the email address verified first: open the verification email from this "
+                   "employer, click its link, then tap Approve again." if state == "verify" or (
+                       created and any("wrong email" in e.lower() for e in errs)) else
+                   "The Submitter couldn't get past this employer's sign-in page.")
+            self.record["needs_you"].append({"step": "Account", "problem": why, "details": errs})
             raise Escalation("account step needs attention")
 
     def fill_page(self, step):
         """Fill the page; then fill again for questions that appeared because of earlier answers."""
         if "experience" in step.lower():
             self.upload_resume()
+            self.fill_experience()
         seen = set()
         for _ in range(3):
             labels = self.fill_fields(step, seen)
@@ -266,7 +344,7 @@ class WorkdayApplication:
             {"step": step, "id": f["id"], "label": f["label"][:60], "kind": f["kind"], "value": f["value"][:40]} for f in fields)
         todo = []
         for f in fields:
-            if f["kind"] == "file":
+            if f["kind"] == "file" or f["id"] in LEAVE_ALONE:
                 continue
             known = KNOWN.get(f["id"])
             if known and f["kind"] == "text":
@@ -311,9 +389,104 @@ class WorkdayApplication:
             self.record["answers"].append({"step": "My Experience", "question": "Resume", "answer": self.pdf_path.name,
                                            "source": "tailored resume"})
 
+    # --- My Experience: work history and education from the claim bank --------------------
+
+    def _claims(self):
+        with open(PRIVATE / "claims.yaml", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    def _month_year(self, box, iso):
+        """Fill a Workday month/year date box from "2024-09"."""
+        year, month = iso.split("-")[:2]
+        for sel, val in (("dateSectionMonth-input", month), ("dateSectionYear-input", year)):
+            part = box.locator(f"[data-automation-id='{sel}']")
+            if part.count():
+                part.first.fill(val)
+
+    def _add_after(self, anchor):
+        """Click the Add button that follows the anchor (a heading or the last entry's field)."""
+        anchor.locator("xpath=following::button[@data-automation-id='add-button'][1]").first.click(force=True)
+        self.page.wait_for_timeout(1200)
+
+    def fill_experience(self):
+        page = self.page
+        bank = self._claims()
+        titles = page.locator("[data-automation-id='formField-jobTitle']")
+        roles = [r for r in bank["roles"] if r.get("employer")][:WORK_ENTRIES]
+        if titles.count() and titles.first.locator("input").first.input_value():
+            self._end_dates(roles)  # entries already there (saved draft, or Workday read them from the resume)
+            return
+        for i, r in enumerate(roles):
+            if i == 0:  # Work Experience comes first on the page, so its Add button is the first one
+                page.locator("[data-automation-id='add-button']").first.click(force=True)
+                page.wait_for_timeout(1200)
+            else:
+                self._add_after(page.locator("[data-automation-id='formField-roleDescription']").nth(i - 1))
+            nth = lambda name: page.locator(f"[data-automation-id='formField-{name}']").nth(i)
+            nth("jobTitle").locator("input").first.fill(r["title"])
+            nth("companyName").locator("input").first.fill(re.sub(r"\s*\(.*\)", "", r["employer"]))
+            if r.get("location"):
+                nth("location").locator("input").first.fill(r["location"])
+            current = str(r["end"]).lower() == "present"
+            if current:
+                cb = nth("currentlyWorkHere").locator("input[type='checkbox']").first
+                if not cb.is_checked():
+                    cb.click(force=True)
+                    page.wait_for_timeout(500)
+            self._month_year(nth("startDate"), str(r["start"]))
+            desc = "\n".join("- " + b["text"] for b in r["bullets"])[:1800]
+            nth("roleDescription").locator("textarea").first.fill(desc)
+            self.record["answers"].append({"step": "My Experience", "question": f"Work experience: {r['title']}",
+                                           "answer": f"{r['employer']}, {r['start']} to {r['end']}",
+                                           "source": "claim bank"})
+        self._end_dates(roles)
+        self.fill_education(bank)
+
+    def _end_dates(self, roles):
+        """End dates. A current job has no "To" box, so the boxes line up with the past jobs only."""
+        ends = self.page.locator("[data-automation-id='formField-endDate']")
+        past = [r for r in roles if str(r["end"]).lower() != "present"]
+        for j, r in enumerate(past[:ends.count()]):
+            self._month_year(ends.nth(j), str(r["end"]))
+
+    def pick_degree(self, box, degree):
+        want = DEGREE_WORDS["msc" if degree.lower().startswith("m") else "bsc"]
+        box.locator("button[aria-haspopup='listbox']").first.click()
+        self.page.wait_for_timeout(600)
+        options = self.page.locator("[role='listbox'] [role='option']")
+        texts = [t.strip() for t in options.all_inner_texts()]
+        for j, t in enumerate(texts):
+            if any(w in (t.lower() + " ") for w in want):
+                options.nth(j).click()
+                return t
+        self.page.keyboard.press("Escape")
+        raise ValueError(f"no degree option matched {degree}; options: {texts[:12]}")
+
+    def fill_education(self, bank):
+        page = self.page
+        schools = page.locator("[data-automation-id='formField-schoolName']")
+        if schools.count() and schools.first.locator("input").first.input_value():
+            return
+        for i, e in enumerate(bank["education"]):
+            if i:
+                self._add_after(schools.nth(i - 1))
+            nth = lambda name: page.locator(f"[data-automation-id='formField-{name}']").nth(i)
+            nth("schoolName").locator("input").first.fill(e["school"])
+            chosen = self.pick_degree(nth("degree"), e["degree"])
+            self.record["answers"].append({"step": "My Experience", "question": f"Education: {e['degree']}",
+                                           "answer": f"{e['school']} ({chosen})", "source": "claim bank"})
+
     # --- field filling ---------------------------------------------------------------
 
     def box(self, f):
+        """The field's container. Workday re-renders on input and drops our tag; find the field again by id and label."""
+        loc = self.page.locator(f"[data-jh-key='{f['key']}']")
+        if loc.count():
+            return loc
+        for g in self.page.evaluate(EXTRACT_JS):
+            if g["id"] == f["id"] and g["label"] == f["label"]:
+                f["key"] = g["key"]
+                break
         return self.page.locator(f"[data-jh-key='{f['key']}']")
 
     def set_text(self, f, value, source):

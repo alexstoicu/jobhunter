@@ -8,6 +8,7 @@ dashboard password): {"<job id>": {"decision": ..., "reason": ..., "answers": {.
   reject            on any open job    -> rejected for good (reposts are treated as duplicates)
   submit            on a ready job     -> submit_confirmed (the Submitter clicks Submit next run)
   answers           on a needs_you job -> answers are added to the answer bank; job back to approved
+  retry             on a needs_you job -> back to approved, for the Submitter to try again
   applied           on an open job     -> Alex applied by hand on the employer's site: marked submitted
 Each entry is applied once: only when its "at" is newer than the job's decided_at.
 
@@ -55,6 +56,8 @@ def main(argv=None):
             for question, reply in (d.get("answers") or {}).items():
                 if reply:
                     answers.learn(question, reply)
+            new = "approved"
+        elif status == "needs_you" and kind == "retry":
             new = "approved"
         elif kind == "applied" and status in ("prepared", "approved", "ready", "needs_you", "submit_confirmed"):
             new = "submitted"

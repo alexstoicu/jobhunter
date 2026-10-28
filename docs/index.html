@@ -473,6 +473,7 @@ function resumeBlock(j) {
       reject: `<div class="decided no">Rejected${d.reason ? ` (${esc(d.reason)})` : ""}</div>`,
       submit: `<div class="decided ok">Submit confirmed · it goes out overnight</div>`,
       applied: `<div class="decided ok">Marked as applied by you</div>`,
+      retry: `<div class="decided ok">Retry requested · the Submitter tries again overnight</div>`,
       answers: `<div class="decided ok">Answers saved · the Submitter retries overnight</div>`,
     }[d.decision];
   } else if (j.status !== "prepared") {
@@ -489,7 +490,7 @@ function resumeBlock(j) {
 
 // The decision Alex made on this device or another that the PC hasn't applied yet.
 const PRE_STATE = { prepare: ["candidate"], approve: ["prepared"], submit: ["ready"], answers: ["needs_you"],
-  applied: ["prepared", "approved", "ready", "needs_you"],
+  applied: ["prepared", "approved", "ready", "needs_you"], retry: ["needs_you"],
   reject: ["candidate", "queued", "prepared", "approved", "ready", "needs_you"] };
 function pending(j) {
   const d = decisions[j.id];
@@ -523,7 +524,7 @@ function submissionBlock(j) {
     const askable = (s.needs_you || []).some((n) => n.question && !n.problem);
     return `<div class="decided no">The Submitter stopped and needs you.</div><div class="settings">${items}
       <p class="sub" style="margin-top:8px">Answers you give are saved to your answer bank, so the same question never comes back.</p></div>${given}${shot}
-      <div class="actions">${askable ? `<button type="button" class="approve" data-act="answers" data-id="${j.id}">Save answers and retry</button>` : ""}
+      <div class="actions">${askable ? `<button type="button" class="approve" data-act="answers" data-id="${j.id}">Save answers and retry</button>` : `<button type="button" class="approve" data-act="retry" data-id="${j.id}" title="Use after you fixed the problem, for example clicked the verification email">Retry</button>`}
       <a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer"><button type="button">Open job page</button></a>
       ${appliedBtn(j.id)}${rejectBtn(j.id)}${pdf}</div>`;
   }
@@ -537,7 +538,7 @@ document.addEventListener("click", async (e) => {
   try {
     const act = b.dataset.act;
     if (act === "pdf") openPdf(id);
-    else if (act === "approve" || act === "prepare" || act === "submit" || act === "reject" || act === "applied") saveDecision(id, act, null);
+    else if (act === "approve" || act === "prepare" || act === "submit" || act === "reject" || act === "applied" || act === "retry") saveDecision(id, act, null);
     else if (act === "answers") {
       const card = b.closest(".card"), given = {};
       card.querySelectorAll("[data-q]").forEach((el) => { if (el.value.trim()) given[el.dataset.q] = el.value.trim(); });

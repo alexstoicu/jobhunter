@@ -103,12 +103,12 @@
   .infobox.hidden { display: none; }
   .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
   .sec { border-top: 1px solid var(--line); margin-top: 14px; }
-  .sec > summary.sechead { list-style: none; cursor: pointer; padding: 14px 0 8px; font-size: 17px; font-weight: 700;
+  .sec > summary.sechead { list-style: none; cursor: pointer; padding: 16px 0 10px; font-size: 21px; font-weight: 800; letter-spacing: -0.01em;
                            color: var(--text); display: flex; align-items: baseline; gap: 8px; }
   .sec > summary.sechead::-webkit-details-marker { display: none; }
   .sec > summary.sechead::before { content: "▸"; color: var(--muted); font-size: 14px; width: 14px; flex: none; transition: transform .15s; }
   .sec[open] > summary.sechead::before { transform: rotate(90deg); }
-  .sec > summary.sechead .infobox { font-size: 13px; }
+  .sec > summary.sechead .infobox { font-size: 13px; font-weight: 400; letter-spacing: 0; }
   .rejected-line { padding: 10px 14px; font-size: 14px; opacity: .85; }
   .rejected-line .emp-inline { color: var(--muted); }
   .rejected-line .no { color: var(--bad); font-weight: 600; }

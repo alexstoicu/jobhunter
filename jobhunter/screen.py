@@ -31,10 +31,10 @@ SCHEMA = {
             "drop_reason": {"type": "string"},
             "fit_score": {"type": "integer", "minimum": 0, "maximum": 100},
             "lane": {"enum": ["radiochem", "analytical", "el", "qa", "dev_supply",
-                              "ai", "pm", "writing", "consulting", "informatics", "operations", "techqa", "other"]},
+                              "ai", "pm", "writing", "consulting", "informatics", "operations", "techqa", "training", "support", "other"]},
             "role_type": {"enum": ["lab", "qa", "validation", "management", "development_supply",
                                    "ai", "project_management", "technical_writing", "consulting", "informatics",
-                                   "operations", "software_qa", "other"]},
+                                   "operations", "software_qa", "training", "support", "other"]},
             "seniority": {"enum": ["entry", "associate", "mid", "senior", "principal", "manager"]},
             "manages_people": {"type": "boolean"},
             "summary": {"type": "string"},
@@ -97,10 +97,12 @@ DROP A JOB (drop=true, short drop_reason) WHEN
 - it requires shift/night/weekend work, more than 50% travel, relocation, a license he lacks, or a
   security clearance;
 - it is director level or above;
-- the posted pay range tops out below the salary floor.
+- the posted pay range tops out below the salary floor, or no range is posted and your estimated range
+  for the role is mostly below it (the floor is a hard minimum, not a preference).
 
-Use lane values ai, pm, writing, consulting, informatics, operations, techqa or other, and the matching
-role_type values. Fit score: how well his real experience (above) covers the role's requirements."""
+Use lane values ai, pm, writing, consulting, training (training, enablement, customer education),
+support (application scientist, technical or application support, solutions consulting), informatics,
+operations, techqa or other, and the matching role_type values. Fit score: how well his real experience (above) covers the role's requirements."""
 
 
 FIELDS_TEXT = """FIT SCORE (0-100), for jobs not dropped
@@ -145,11 +147,18 @@ WHAT HE WANTS
 
 DROP A JOB (drop=true, short drop_reason) WHEN
 - it is not lab or lab-related work (e.g. IT, clerical, sales, purely computational, clinical/patient-facing);
-- it is mainly cell/molecular biology research with no chemistry, analytical or QC component;
+- it is biology-centered: cell-based or cell-culture assays, microbiology, molecular biology, immunoassay /
+  ADA / PK bioanalysis, flow cytometry, PCR or genomics work. His core is CHEMISTRY: wet chemistry and sample
+  preparation, HPLC/GC and other instrumental analysis of small molecules, APIs and drug products,
+  radiochemistry, extractables & leachables, nitrosamines, method development/validation. His biologics
+  exposure (ELISA, SDS-PAGE, capillary electrophoresis, ligand-binding screening) is secondary background:
+  at most a plus for an analytical chemistry or biologics QC role, never the reason to rate a biology job
+  well. A role whose main work is biology scores 35 or lower;
 - it requires shift/night/weekend work, more than 50% travel, relocation, a license he lacks
   (pharmacist, MLS/ASCP, PE), or a security clearance;
 - it is director level or above, senior/lead QA, or steady-state supply/logistics operations;
-- the posted pay range tops out below the salary floor.
+- the posted pay range tops out below the salary floor, or no range is posted and your estimated range for
+  the role is mostly below it (the floor is a hard minimum).
 
 {tail}"""
 

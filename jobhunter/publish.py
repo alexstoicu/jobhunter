@@ -24,6 +24,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from jobhunter import PRIVATE, ROOT, db, filters
 
+GH_TOKEN = ("jobhunter-github", "dashboard-token")
+
 DOCS = ROOT / "docs"
 KEYRING = ("jobhunter", "dashboard")
 ITERATIONS = 600_000
@@ -103,6 +105,9 @@ def build_payload(conn):
         "stats": {"by_status": by_status, "by_reason": by_reason, "by_employer": by_employer,
                   "last_run": last_run[0] if last_run else None},
         "watchlist": watchlist,
+        # The token for the Approve/Reject buttons rides inside the encrypted payload: unlocking the dashboard
+        # with the password also enables the buttons, with nothing to set up per device.
+        "gh_token": keyring.get_password(*GH_TOKEN),
     }
 
 
@@ -113,6 +118,7 @@ def git(*args):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--set-password", action="store_true")
+    parser.add_argument("--set-token", action="store_true", help="store the GitHub token the dashboard buttons use")
     parser.add_argument("--push", action="store_true", help="commit and push docs/ to GitHub")
     args = parser.parse_args(argv)
 
@@ -122,6 +128,14 @@ def main(argv=None):
             sys.exit("Passwords differ or are shorter than 12 characters.")
         keyring.set_password(*KEYRING, first)
         print("Saved to Windows Credential Manager.")
+        return
+
+    if args.set_token:
+        token = getpass.getpass("GitHub token (github_pat_...): ").strip()
+        if not token.startswith(("github_pat_", "ghp_")):
+            sys.exit("That doesn't look like a GitHub token.")
+        keyring.set_password(*GH_TOKEN, token)
+        print("Saved to Windows Credential Manager. It goes into the next publish.")
         return
 
     password = keyring.get_password(*KEYRING)

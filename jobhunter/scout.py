@@ -157,6 +157,29 @@ def scout_employer(conn, employer, config, profile):
     return counts
 
 
+def recheck_candidates(conn, config, profile):
+    """Hold jobs already on the list to the current rules: titles that now fail, pay below the floor.
+
+    Jobs Alex picked himself (queued by him) or that are further along are left alone.
+    """
+    dropped = 0
+    rows = conn.execute("SELECT id, title, salary_max FROM jobs WHERE status = 'candidate' "
+                        "AND COALESCE(picked_by, '') != 'alex'").fetchall()
+    for r in rows:
+        track, reason = filters.track_verdict(r["title"], config)
+        if track is None:
+            why = reason
+        elif r["salary_max"] and r["salary_max"] < profile["salary_floor_usd"]:
+            why = f"pay up to ${r['salary_max']:,.0f}"
+        else:
+            continue
+        conn.execute("UPDATE jobs SET status = 'filtered_out', status_reason = ? WHERE id = ?", (why, r["id"]))
+        db.log_event(conn, r["id"], "filtered_out", f"rechecked: {why}")
+        dropped += 1
+    conn.commit()
+    return dropped
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", help="scout a single employer by name")
@@ -165,6 +188,7 @@ def main(argv=None):
     config, profile, watchlist = load_settings()
     crossed = {n.lower() for n in profile.get("crossed_out_employers", [])}
     conn = db.connect()
+    print(f"rechecked existing candidates against the current rules: {recheck_candidates(conn, config, profile)} dropped")
     run = conn.execute("INSERT INTO runs (started, step) VALUES (?, 'scout')", (db.now(),)).lastrowid
     totals = {"employers": 0, "seen": 0, "new": 0, "candidate": 0, "errors": 0}
 

@@ -183,6 +183,8 @@
 <script>
 const STORE_KEY = "jh-pw";
 const TOKEN_KEY = "jh-gh-token";
+// The token comes with the unlocked data (stored there by the PC); a token pasted into Settings is the fallback.
+const getToken = () => (DATA && DATA.gh_token) || lsGet(TOKEN_KEY) || null;
 const REPO = "alexstoicu/jobhunter";
 const DECISIONS_PATH = "docs/decisions.enc.json";
 const REJECT_REASONS = ["Too far", "Too junior", "Too senior", "Wrong lane", "Pay too low", "Not interested", "Other"];
@@ -196,10 +198,10 @@ const money = (n) => "$" + Math.round(n / 1000) + "k";
 const num = (n) => Math.round(n || 0).toLocaleString();
 const LANES = { radiochem: "Radiochem", analytical: "Analytical", el: "E&L", qa: "QA/GxP", dev_supply: "Dev supply",
   ai: "AI", pm: "Project mgmt", writing: "Tech writing", consulting: "Consulting", informatics: "Informatics",
-  operations: "Operations", techqa: "QA testing", other: "Other" };
+  operations: "Operations", techqa: "QA testing", training: "Training", support: "Tech support", other: "Other" };
 const ROLES = { lab: "Lab", qa: "QA", validation: "Validation", management: "Management", development_supply: "Development supply",
   ai: "AI", project_management: "Project management", technical_writing: "Technical writing", consulting: "Consulting",
-  informatics: "Informatics", operations: "Operations", software_qa: "Software QA", other: "Other" };
+  informatics: "Informatics", operations: "Operations", software_qa: "Software QA", training: "Training", support: "Tech support", other: "Other" };
 const STEPS = [["screen", "Screening", "--s1"], ["tailor", "Tailoring", "--s2"], ["verify", "Verifying", "--s3"]];
 let usageModel = null;
 
@@ -211,7 +213,7 @@ const INFO = {
   "to approve": "Applications with a finished, fact-checked resume waiting for your Approve or Reject.",
   "To approve": "Each of these has a tailored resume built only from your claim bank and fact-checked line by line. Approve sends it to the Submitter (Stage 4); Reject records your reason so ranking learns from it.",
   "Approved": "Applications you approved. The Submitter (Stage 4) fills and submits the employer's form; until then they wait here.",
-  "To prepare": "Today's top picks (fit 60+), up to 3 a day. The Tailor builds their resumes on the next nightly run.",
+  "To prepare": "Today's top picks (fit 50+), up to 3 a day. The Tailor builds their resumes on the next nightly run.",
   "Rejected by you": "Jobs you rejected, with your reason, for the last 14 days. A rejected job never comes back: if the employer reposts it, the Scout recognizes it and skips it.",
   "Needs you": "The Submitter stopped: a question your answer bank doesn't cover, an account or email-verification step, a CAPTCHA, or a site it can't fill yet. Answer here and it retries; your answers are saved for next time.",
   "Ready to submit": "The employer's form is filled in up to its Review page. Check the answers and screenshot, then tap Submit. (Pilot setting: once the forms prove right, approved applications can be submitted without this second tap.)",
@@ -308,7 +310,7 @@ const utf8b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)))
 const b64utf8 = (s) => new TextDecoder().decode(b64(s.replace(/\n/g, "")));
 
 async function gh(method, body) {
-  const token = lsGet(TOKEN_KEY);
+  const token = getToken();
   const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DECISIONS_PATH}`, {
     method, cache: "no-store",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
@@ -317,13 +319,15 @@ async function gh(method, body) {
   if (method === "GET" && res.status === 404) return null;
   if (res.status === 403 && method === "PUT")
     throw new Error("GitHub refused to save: the token can read but not write. On github.com edit the token: Repository access → only jobhunter; Repository permissions → Contents → Read and write. Then tap again.");
+  if (res.status === 401)
+    throw new Error("GitHub rejected the token (expired or replaced). On the PC run: .venv\\Scripts\\python -m jobhunter.publish --set-token, then wait for the next publish.");
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.json().catch(() => ({}))).message || "request failed"}`);
   return res.json();
 }
 
 async function loadDecisions() {
   let blob = null;
-  if (lsGet(TOKEN_KEY)) {
+  if (getToken()) {
     const file = await gh("GET");
     if (file) blob = JSON.parse(b64utf8(file.content));
   } else {
@@ -339,7 +343,7 @@ let saveChain = Promise.resolve();
 const justRejected = new Set();  // rejected during this visit: shown as a one-line card until the page reloads
 
 function saveDecision(id, decision, reason, given = null) {
-  if (!lsGet(TOKEN_KEY)) { openSettings("Add a GitHub token first (one time per device)."); return; }
+  if (!getToken()) { openSettings("No token available. Add one here, or ask for it to be stored with the dashboard data."); return; }
   const before = decisions[id];
   const entry = { decision, reason, at: new Date().toISOString(), ...(given ? { answers: given } : {}) };
   decisions = { ...decisions, [id]: entry };
@@ -372,7 +376,7 @@ function openPdf(id) {
 
 function openSettings(msg = "") {
   $("settings").classList.remove("hidden");
-  $("tokenmsg").textContent = msg || (lsGet(TOKEN_KEY) ? "A token is saved on this device." : "No token saved on this device.");
+  $("tokenmsg").textContent = msg || (DATA && DATA.gh_token ? "Using the token stored with your encrypted dashboard data: nothing to set up on this device." : lsGet(TOKEN_KEY) ? "A token is saved on this device." : "No token saved on this device.");
 }
 
 async function unlock(password, remember) {
@@ -652,7 +656,7 @@ function jobsTab(d, track) {
   const sec = (label, items, empty, extraText = "", note = "") =>
     section(`${track}-${label}`, label, ` · ${extraText}${items.length}`,
       note + (items.length ? items.map(card).join("") : `<p class="empty">${empty}</p>`));
-  return (lsGet(TOKEN_KEY) ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
+  return (getToken() ? "" : `<div class="warnbar">To approve or reject from this device, add a GitHub token in Settings (one time).</div>`) +
     (track === "alt" ? `<p class="sub" style="margin-top:12px">Roles outside the lab that use your transferable skills: AI implementation, project management, technical writing, consulting, informatics, operations and QA testing. Resumes for these lead with management, documentation and AI.</p>` : "") +
     (needsYou.length ? sec("Needs you", needsYou, "") : "") +
     (ready.length ? sec("Ready to submit", ready, "") : "") +

@@ -1,10 +1,12 @@
-"""Nightly run (Windows Task Scheduler, 02:00): decisions -> Scout -> Screener -> Tailor -> publish.
+"""Nightly run (Windows Task Scheduler, 01:00; submit-only at 03:30): decisions -> Scout -> Screener -> Tailor -> publish.
 
 Each step runs even if an earlier one failed, so the dashboard always gets refreshed.
 Log: data/logs/nightly-YYYY-MM-DD.log
 """
 import contextlib
+import socket
 import sys
+import time
 import traceback
 from datetime import date
 
@@ -18,8 +20,19 @@ STEPS = [
     ("submit", "jobhunter.submit", []),
     ("publish", "jobhunter.publish", ["--push"]),
 ]
-# 12:00 and 18:00: act on Alex's decisions (incl. jobs he picked to prepare) without scouting again.
+# 03:30: act on Alex's decisions (incl. jobs he picked to prepare) without scouting again.
 SUBMIT_STEPS = [s for s in STEPS if s[0] in ("decisions", "tailor", "submit", "publish")]
+
+
+def wait_for_network(minutes=10):
+    """A machine waking from sleep can start the run before Wi-Fi is back (Oct 31: every feed failed)."""
+    for _ in range(minutes * 6):
+        try:
+            socket.create_connection(("github.com", 443), timeout=5).close()
+            return True
+        except OSError:
+            time.sleep(10)
+    return False
 
 
 def main():
@@ -29,6 +42,8 @@ def main():
     failed = []
     with open(logs / f"nightly-{date.today().isoformat()}.log", "a", encoding="utf-8", buffering=1) as log, \
             contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+        if not wait_for_network():
+            print("no internet after 10 minutes; running anyway")
         for name, module, args in steps:
             print(f"=== {name}")
             try:

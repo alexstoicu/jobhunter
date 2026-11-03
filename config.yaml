@@ -27,10 +27,10 @@ scout:
   #   4. a QA word -> keep only without a seniority word (associate and mid-level QA only)
   #   5. otherwise drop
   title_lab: [chemist, chemistry, analytical, QC, "quality control", laboratory, lab, scientist, "research associate",
-              HPLC, "LC/MS", LC-MS, LCMS, GC, GC-MS, chromatography, bioanalytical, spectroscopy, "mass spec*",
+              HPLC, "LC/MS", LC-MS, LCMS, GC, GC-MS, chromatography, spectroscopy, "mass spec*",
               radiochem*, radiopharm*, radioligand*, radiolabel*, radiation, radioisotope*, isotope*, cyclotron, PET, nuclear,
               extractable*, leachable*, "E&L", stability, method*, validation, CMC, formulation*, "drug product",
-              "product development", assay*, bioassay*, immunoassay*, ADA, PK, biomarker*, metrology, microbiolog*]
+              "product development", metrology]
   title_qa: ["quality assurance", QA, compliance, "quality systems", audit*, "quality operations", "quality specialist",
              "quality engineer", "quality associate", "quality analyst",
              investigator, deviation*, CAPA]  # event/deviation investigators do the OOS/OOT and deviation work
@@ -42,6 +42,10 @@ scout:
                       "technology transfer", build-out, buildout]
   # Any of these drops the title. Director level and above is out of scope.
   title_exclude: [director, "vice president", VP, SVP, EVP, chief, president, head,
+                  # biology is outside his chemistry core (wet chemistry, HPLC/GC, radiochemistry, E&L, API testing)
+                  "cell-based", "cell based", "cell culture", "cell line", "cell therapy", "gene therapy", microbiolog*, immunolog*,
+                  virolog*, "molecular biology", "flow cytometry", ADA, PK, bioanalytical, immunoassay*, bioassay*, biomarker*,
+                  "ligand binding", genomic*, proteomic*, PCR, biologist, biology,
                   intern, internship, co-op, student, "graduate program", "new grad", rotation*, apprentice*,
                   sales, marketing, "account manager", driver, nurse, physician, pharmacist, technologist,
                   "medical science liaison", "clinical research associate", "clinical study", software, "data scientist",
@@ -83,11 +87,18 @@ alt:
     operations:
       name: Operations, assets and supply
       keywords: ["operations manag*", "lab operations", "facilit*", "asset manag*", "equipment manag*", "vendor manag*", "supply chain", procurement]
+    training:
+      name: Training, enablement and learning
+      keywords: ["training", "enablement", "instructional design*", "learning and development", "customer education", "onboarding", "curriculum"]
+    support:
+      name: Technical and application support
+      keywords: ["application scientist", "technical support", "solutions consultant", "field application", "customer support engineer", "technical account", "product specialist", "technical specialist"]
     techqa:
       name: Software and game QA
       keywords: ["QA tester", "quality assurance tester", "game test*", "software test*", "test analyst", "QA analyst", "playtest*"]
   search_terms: [AI, "artificial intelligence", automation, "project manager", "program manager", "technical writer",
-                 documentation, consultant, implementation, LIMS, informatics, "operations manager", "QA tester"]
+                 documentation, consultant, implementation, LIMS, informatics, "operations manager", "QA tester",
+                 "application scientist", "technical support", training, enablement, "continuous improvement", "business analyst"]
   # A title must contain one of these (same matching rules as the lab track).
   title_include: [AI, "artificial intelligence", "machine learning", LLM, GenAI, automation, agent*, "prompt",
                   "project manag*", "program manag*", "project coordinat*", "project lead", PMO, scrum,
@@ -95,12 +106,18 @@ alt:
                   consultant, consulting, implementation, "solutions", "customer success", advisor,
                   LIMS, informatics, ELN, "systems analyst", "data analyst", "business analyst",
                   "operations", "facilit*", "asset", "equipment", "vendor", "supply chain",
-                  "QA tester", "test analyst", "game test*", "software test*", "QA analyst", playtest*, trainer, "subject matter expert", SME]
+                  "QA tester", "test analyst", "game test*", "software test*", "QA analyst", playtest*, trainer, "subject matter expert", SME,
+                  "scientific writ*", "medical writ*", "regulatory writ*", "application scientist", "technical support", "support specialist",
+                  "solutions consultant", "customer education", "enablement", "instructional", "training", "learning",
+                  "process improvement", "continuous improvement", "operational excellence", "business operations", "product specialist",
+                  "technical specialist", "technical account", "quality systems", "validation", "computer system*", "lab manager",
+                  "laboratory manager", "scientific program*", "research program*"]
   title_exclude: [director, "vice president", VP, SVP, EVP, chief, president, head, "senior manager", "sr manager", "sr. manager",
                   intern, internship, co-op, student, "graduate program", "new grad", apprentice*, sales, "account executive",
                   "account manager", "business development", driver, nurse, physician, pharmacist, technologist, clinical,
                   recruiter, "human resources", payroll, accountant, finance, "field service", warehouse, "forklift",
-                  "medical", "regulatory affairs", thesis, freelance*, "software engineer", "senior engineer", "staff engineer",
+                  "medical affairs", "medical science liaison", "medical director", "medical information", "medical monitor",
+                  "medical assistant", "medical device sales", "regulatory affairs", thesis, freelance*, "software engineer", "senior engineer", "staff engineer",
                   "principal engineer", architect, "data scientist", "machine learning engineer", devops, "site reliability",
                   backend, "back-end", frontend, "front-end", "full stack", "full-stack", "data engineer", "ML engineer",
                   "AI engineer", "research engineer", "research scientist", developer, software, SRE, "security engineer"]
@@ -109,10 +126,10 @@ screener:
   model: sonnet
   batch_size: 4            # jobs per Claude call; each call has ~1.5k tokens of fixed overhead
   max_jobs_per_run: 24     # safety cap on Claude usage per night
-  min_fit: 60              # below this a job is not queued for preparation (pilot value; tune from rejections)
+  min_fit: 50              # below this a job is not queued for preparation (lowered from 60 on 2026-11-02 to widen the funnel)
   # Ranking = fit score + these adjustments. Lab lanes first; QA is the lowest priority.
   lane_bonus: {radiochem: 10, analytical: 6, el: 6, dev_supply: 3, qa: -8, other: -10}
-  alt_lane_bonus: {ai: 10, pm: 7, writing: 7, consulting: 7, informatics: 4, operations: 2, techqa: 0, other: -10}
+  alt_lane_bonus: {ai: 10, pm: 7, writing: 7, consulting: 7, training: 5, support: 5, informatics: 4, operations: 2, techqa: 0, other: -10}
   fresh_bonus: 5           # posted within 3 days
   near_bonus: 3            # remote or within 15 minutes
 

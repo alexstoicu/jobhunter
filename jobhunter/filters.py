@@ -130,12 +130,40 @@ def resolve_location(location, title="", description=""):
     return mode, None
 
 
+_FOREIGN = (
+    r"canada|uk|united kingdom|england|scotland|germany|india|ireland|mexico|netherlands|belgium|switzerland|france|"
+    r"spain|italy|poland|china|japan|korea|australia|new zealand|singapore|brazil|argentina|colombia|chile|peru|"
+    r"costa rica|portugal|romania|bulgaria|serbia|hungary|czech\w*|slovakia|greece|turkey|cyprus|austria|denmark|"
+    r"sweden|norway|finland|estonia|latvia|lithuania|ukraine|israel|egypt|saudi arabia|uae|emirates|qatar|kuwait|"
+    r"south africa|nigeria|kenya|pakistan|bangladesh|philippines|vietnam|thailand|malaysia|indonesia|taiwan|"
+    r"hong kong|emea|apac|latam|europe|asia|middle east|africa|"
+    r"toronto|vancouver|montreal|ottawa|calgary|london|dublin, ireland|paris|berlin|munich|amsterdam|madrid|barcelona|"
+    r"lisbon|warsaw|zurich|tokyo|seoul|sydney|melbourne|bangalore|bengaluru|hyderabad|mumbai|pune|dubai|riyadh|"
+    r"dammam|cairo|sofia|belgrade|bucharest|budapest|prague|bogota|buenos aires|sao paulo|mexico city|tel aviv"
+)
+# Country prefixes some feeds put in front of a location, e.g. "IND-Remote", and Canadian provinces after "CA".
+_FOREIGN_CODES = (r"(?:IND|POL|FRA|ESP|GBR|PRT|DEU|ITA|NLD|BEL|CHE|SWE|DNK|NOR|FIN|IRL|MEX|BRA|ARG|COL|CHN|JPN|KOR|"
+                  r"AUS|SGP|PHL|VNM|THA|MYS|IDN|PAK|NGA|ZAF|ISR|TUR|ARE|SAU|EGY|SRB|BGR|ROU|HUN|CZE|AUT)-")
+_CA_PROVINCE = r"CA[ -](?:ON|BC|AB|QC|MB|NS|NB|SK)"
+_US_STATES = (r"alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|"
+              r"illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|"
+              r"mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|"
+              r"north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|"
+              r"south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|"
+              r"puerto rico|nyc|san francisco|boston|chicago|dallas|seattle|austin|los angeles|philadelphia|denver|atlanta")
+
+
 def is_us_remote(location):
-    """Remote postings tied to another country are out of scope."""
-    foreign = re.search(r"\b(canada|uk|united kingdom|germany|india|ireland|mexico|netherlands|belgium|"
-                        r"switzerland|france|spain|italy|poland|china|japan|australia|singapore|brazil)\b",
-                        location or "", re.I)
-    return foreign is None
+    """Remote postings tied to another country are out of scope. A plain "Remote" with no place is kept.
+
+    `location` may also carry the job title: some feeds only name the country there ("... Remote SERBIA").
+    """
+    text = location or ""
+    if re.search(r"\b(?:united states|usa|u\.s\.a?|us)\b|\b(?:" + _US_STATES + r")\b", text, re.I):
+        return True
+    return not (re.search(r"\b(?:" + _FOREIGN + r")\b", text, re.I)
+                or re.search(r"\b" + _FOREIGN_CODES, text)
+                or re.search(r"\b" + _CA_PROVINCE + r"\b", text))
 
 
 _AMOUNT = r"\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d+(?:\.\d+)?\s?[kK]?)"

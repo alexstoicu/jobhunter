@@ -8,6 +8,7 @@ did is recorded in `self.record` for the dashboard.
 """
 import json
 import re
+import unicodedata
 from datetime import date
 from urllib.parse import urlparse
 
@@ -35,7 +36,7 @@ LEAVE_ALONE = {"formField-preferredCheck", "formField-skills", "formField-linked
                # filled by fill_experience from the claim bank
                "formField-jobTitle", "formField-companyName", "formField-location", "formField-currentlyWorkHere",
                "formField-startDate", "formField-endDate", "formField-roleDescription", "formField-schoolName",
-               "formField-degree"}
+               "formField-school", "formField-degree"}
 
 # Degree wording differs per tenant; the first option containing one of these words wins.
 DEGREE_WORDS = {"msc": ("master", "m.s", "msc", "m.sc", "ms "), "bsc": ("bachelor", "b.s", "bsc", "b.sc", "bs ")}
@@ -177,7 +178,8 @@ class WorkdayApplication:
     def errors(self):
         loc = self.page.locator("[data-automation-id='errorMessage'], [data-automation-id='inputErrorMessage'], "
                                 "[data-automation-id='errorBanner'] li, [role='alert']")
-        return [t.strip() for t in loc.all_inner_texts() if t.strip()]
+        # [role='alert'] also carries good news, e.g. "resume.pdf successfully uploaded"
+        return [t.strip() for t in loc.all_inner_texts() if t.strip() and not re.search(r"successfully", t, re.I)]
 
     # --- flow ------------------------------------------------------------------------
 
@@ -187,6 +189,12 @@ class WorkdayApplication:
         accept = page.locator("[data-automation-id='legalNoticeAcceptButton']")
         if accept.count():
             accept.first.click()
+        for _ in range(3):  # Workday sometimes serves a blank page; a reload fixes it
+            try:
+                page.wait_for_selector("[data-automation-id='adventureButton']", state="visible", timeout=30000)
+                break
+            except Exception:
+                page.reload(wait_until="networkidle")
         self.click("[data-automation-id='adventureButton']")
         self.settle(1500)
         manual = page.locator("[data-automation-id='applyManually']")
@@ -415,6 +423,7 @@ class WorkdayApplication:
         roles = [r for r in bank["roles"] if r.get("employer")][:WORK_ENTRIES]
         if titles.count() and titles.first.locator("input").first.input_value():
             self._end_dates(roles)  # entries already there (saved draft, or Workday read them from the resume)
+            self.fill_education(bank)
             return
         for i, r in enumerate(roles):
             if i == 0:  # Work Experience comes first on the page, so its Add button is the first one
@@ -451,30 +460,94 @@ class WorkdayApplication:
 
     def pick_degree(self, box, degree):
         want = DEGREE_WORDS["msc" if degree.lower().startswith("m") else "bsc"]
-        box.locator("button[aria-haspopup='listbox']").first.click()
-        self.page.wait_for_timeout(600)
-        options = self.page.locator("[role='listbox'] [role='option']")
-        texts = [t.strip() for t in options.all_inner_texts()]
+        button = box.locator("button[aria-haspopup='listbox']").first
+        # Options of the open list only: the chips of already chosen schools are listboxes too.
+        options = self.page.locator("xpath=//*[@role='listbox'][not(ancestor::*[@data-automation-id='multiSelectContainer'])]"
+                                    "//*[@role='option']")
+        texts = []
+        for _ in range(2):  # a leftover school search popup swallows the first click
+            button.click()
+            self.page.wait_for_timeout(700)
+            texts = [t.strip() for t in options.all_inner_texts()]
+            if any(any(w in (t.lower() + " ") for w in want) for t in texts):
+                break
         for j, t in enumerate(texts):
             if any(w in (t.lower() + " ") for w in want):
                 options.nth(j).click()
+                self.page.wait_for_timeout(700)
+                shown = button.inner_text().strip()
+                if shown.lower() != t.lower():
+                    raise ValueError(f"degree shows {shown!r} after picking {t!r}")
                 return t
         self.page.keyboard.press("Escape")
         raise ValueError(f"no degree option matched {degree}; options: {texts[:12]}")
 
+    @staticmethod
+    def _plain(text):
+        """Lower case, no accents or punctuation, for comparing school names."""
+        text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+    def pick_school(self, box, school):
+        """Fill a school field. Some tenants use a plain box, others a search list (type, Enter, pick).
+
+        When the list lacks the school, take the form's own "N/A - Not Listed" option, as the form instructs.
+        Returns what was entered.
+        """
+        page = self.page
+        if not box.locator("[data-automation-id='multiSelectContainer']").count():
+            box.locator("input").first.fill(school)
+            return school
+        search = box.locator("[data-automation-id='searchBox']").first
+        options = page.locator("[data-automation-id='promptOption']")
+
+        def look(term):
+            search.fill(term)
+            search.press("Enter")
+            page.wait_for_timeout(2500)
+            return [t.strip() for t in options.all_inner_texts()]
+
+        want = self._plain(school)
+        keywords = [w for w in re.split(r"\s+", school) if len(w) > 4 and w.lower() not in ("university", "universitatea")]
+        for term in dict.fromkeys([school, *keywords[-1:]]):
+            texts = look(term)
+            for j, t in enumerate(texts):
+                if self._plain(t) == want:
+                    options.nth(j).click()
+                    page.wait_for_timeout(500)
+                    return t
+        texts = look("Not Listed")
+        for j, t in enumerate(texts):
+            if "not listed" in t.lower():
+                options.nth(j).click()
+                page.wait_for_timeout(500)
+                return t
+        search.fill("")
+        raise ValueError(f"school {school!r} not in the list and no 'Not Listed' option; saw {texts[:8]}")
+
     def fill_education(self, bank):
         page = self.page
-        schools = page.locator("[data-automation-id='formField-schoolName']")
-        if schools.count() and schools.first.locator("input").first.input_value():
-            return
+        sel = "[data-automation-id='formField-school'], [data-automation-id='formField-schoolName']"
+        schools = page.locator(sel)
+
+        def done(i):
+            box = schools.nth(i)
+            return bool(box.locator("[data-automation-id='selectedItem']").count()
+                        or box.locator("input").first.input_value()
+                        or box.locator("[data-automation-id='promptSelectionLabel']").first.inner_text().strip())
+
         for i, e in enumerate(bank["education"]):
-            if i:
-                self._add_after(schools.nth(i - 1))
-            nth = lambda name: page.locator(f"[data-automation-id='formField-{name}']").nth(i)
-            nth("schoolName").locator("input").first.fill(e["school"])
-            chosen = self.pick_degree(nth("degree"), e["degree"])
+            if i < schools.count() and done(i):
+                continue
+            if i >= schools.count():
+                if i:
+                    self._add_after(page.locator("[data-automation-id='formField-degree']").nth(i - 1))
+                else:  # the Education section starts empty, with only an Add button under its heading
+                    self._add_after(page.get_by_role("heading", name=re.compile(r"^Education$", re.I)).first)
+            entered = self.pick_school(schools.nth(i), e["school"])
+            chosen = self.pick_degree(page.locator("[data-automation-id='formField-degree']").nth(i), e["degree"])
             self.record["answers"].append({"step": "My Experience", "question": f"Education: {e['degree']}",
-                                           "answer": f"{e['school']} ({chosen})", "source": "claim bank"})
+                                           "answer": f"{entered} ({chosen})", "source": "claim bank"})
 
     # --- field filling ---------------------------------------------------------------
 

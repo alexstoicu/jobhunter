@@ -46,7 +46,7 @@ def evaluate(conn, job, config, profile):
     job["work_mode"], job["city"] = mode, city
 
     if mode == "remote":
-        if not filters.is_us_remote(job["location"]):
+        if not filters.is_us_remote(f"{job['location'] or ''} {job['title']}"):
             return "filtered_out", "remote outside the US"
     else:
         if not city:
@@ -163,12 +163,14 @@ def recheck_candidates(conn, config, profile):
     Jobs Alex picked himself (queued by him) or that are further along are left alone.
     """
     dropped = 0
-    rows = conn.execute("SELECT id, title, salary_max FROM jobs WHERE status = 'candidate' "
+    rows = conn.execute("SELECT id, title, location, work_mode, salary_max FROM jobs WHERE status = 'candidate' "
                         "AND COALESCE(picked_by, '') != 'alex'").fetchall()
     for r in rows:
         track, reason = filters.track_verdict(r["title"], config)
         if track is None:
             why = reason
+        elif r["work_mode"] == "remote" and not filters.is_us_remote(f"{r['location'] or ''} {r['title']}"):
+            why = "remote outside the US"
         elif r["salary_max"] and r["salary_max"] < profile["salary_floor_usd"]:
             why = f"pay up to ${r['salary_max']:,.0f}"
         else:
